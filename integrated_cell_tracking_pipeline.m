@@ -142,7 +142,8 @@ function params = collect_pipeline_parameters()
         params = [];
         return;
     end
-    params.figures_visibility = {'off', 'on'}{fig_idx};
+    visibility_options = {'off', 'on'};
+    params.figures_visibility = visibility_options{fig_idx};
 
     % ===== POPUP 4: Alignment Type =====
     alignment_types = {'Translations', 'Translations and Rotations', 'Non-rigid'};
@@ -232,8 +233,16 @@ function params = collect_pipeline_parameters()
     fprintf('Temporary data path: %s\n', params.temp_data_path);
     fprintf('Results will be saved to: %s\n', params.results_directory);
     fprintf('Microns per pixel: %.2f\n', params.microns_per_pixel);
-    fprintf('Memory efficient: %s\n', {'No', 'Yes'}{params.memory_efficient_run + 1});
-    fprintf('Parallel processing: %s\n', {'No', 'Yes'}{params.use_parallel_processing + 1});
+    if params.memory_efficient_run
+        fprintf('Memory efficient: Yes\n');
+    else
+        fprintf('Memory efficient: No\n');
+    end
+    if params.use_parallel_processing
+        fprintf('Parallel processing: Yes\n');
+    else
+        fprintf('Parallel processing: No\n');
+    end
     fprintf('Figures visibility: %s\n', params.figures_visibility);
     fprintf('============================\n\n');
 
