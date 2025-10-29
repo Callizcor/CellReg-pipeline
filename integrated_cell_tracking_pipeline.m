@@ -68,74 +68,38 @@ end
 %% ========================================================================
 
 function params = collect_pipeline_parameters()
-% COLLECT_PIPELINE_PARAMETERS - Collect all parameters needed for the pipeline
+% COLLECT_PIPELINE_PARAMETERS - Consolidated parameter collection with minimal popups
 
-    % Dialog 1: Subject and Sessions
+    % ===== POPUP 1: Basic Data Parameters =====
     prompt1 = {
         'Subject ID:'
         'Sessions (comma-separated, e.g., 1,2,3,6,7,8):'
         'Temporary data path (for .mat files):'
-        'Cell probability threshold (0-1, only cells above this will be included):'
+        'Cell probability threshold (0-1):'
+        'Microns per pixel:'
+        'Number of zoomed cell figures:'
+        'Reference session index (1 to N):'
     };
-    dlgtitle1 = 'Data Extraction Parameters';
-    dims1 = [1 60];
-    definput1 = {'101106', '3,4,7', './temp_data/', '0.5'};
+    dlgtitle1 = 'Pipeline Configuration - Basic Parameters';
+    dims1 = [1 70];
+    definput1 = {'101106', '3,4,7', './temp_data/', '0.5', '1.367', '50', '1'};
     answer1 = inputdlg(prompt1, dlgtitle1, dims1, definput1);
-    
+
     if isempty(answer1)
         params = [];
         return;
     end
-    
+
     params.subject_id = str2double(answer1{1});
     sessions_str = strrep(answer1{2}, ' ', '');
     params.sessions = str2num(['[' sessions_str ']']);
     params.temp_data_path = answer1{3};
     params.cell_prob_threshold = str2double(answer1{4});
-    
-    % Dialog 2: CellReg Basic Parameters
-    prompt2 = {
-        'Microns per pixel:'
-        'Memory efficient run:'
-        'Use parallel processing:'
-        'Show figures during processing:'
-        'Number of zoomed cell figures to generate:'
-    };
-    dlgtitle2 = 'CellReg Basic Parameters';
-    dims2 = [1 60];
-    definput2 = {'1.367', '0 (No)', 'true (Yes)', 'off (No)', '50'};
-    answer2 = inputdlg(prompt2, dlgtitle2, dims2, definput2);
+    params.microns_per_pixel = str2double(answer1{5});
+    params.n_zoomed = str2double(answer1{6});
+    params.reference_session_index = str2double(answer1{7});
 
-    if isempty(answer2)
-        params = [];
-        return;
-    end
-
-    params.microns_per_pixel = str2double(answer2{1});
-    % Parse memory efficient: accept 0, 1, 'no', 'yes'
-    mem_str = lower(strtrim(answer2{2}));
-    if contains(mem_str, 'yes') || contains(mem_str, '1')
-        params.memory_efficient_run = 1;
-    else
-        params.memory_efficient_run = 0;
-    end
-    % Parse parallel processing
-    par_str = lower(strtrim(answer2{3}));
-    if contains(par_str, 'yes') || contains(par_str, 'true')
-        params.use_parallel_processing = true;
-    else
-        params.use_parallel_processing = false;
-    end
-    % Parse figures visibility
-    fig_str = lower(strtrim(answer2{4}));
-    if contains(fig_str, 'yes') || contains(fig_str, 'on')
-        params.figures_visibility = 'on';
-    else
-        params.figures_visibility = 'off';
-    end
-    params.n_zoomed = str2double(answer2{5});
-
-    % Select results directory using GUI
+    % ===== POPUP 2: Results Directory =====
     results_directory = uigetdir(pwd, 'Select directory to save results');
     if isequal(results_directory, 0)
         results_directory = fullfile(pwd, 'cellreg_results');
@@ -143,12 +107,50 @@ function params = collect_pipeline_parameters()
     end
     params.results_directory = results_directory;
 
-    % Dialog 3: CellReg Alignment Parameters - Use dropdown for alignment type
+    % ===== POPUP 3: Processing Options (Yes/No choices) =====
+    [mem_idx, tf] = listdlg('PromptString', 'Memory efficient run:', ...
+                            'SelectionMode', 'single', ...
+                            'ListString', {'No', 'Yes'}, ...
+                            'InitialValue', 1, ...
+                            'ListSize', [250, 80], ...
+                            'Name', 'Memory Efficient');
+    if ~tf
+        params = [];
+        return;
+    end
+    params.memory_efficient_run = mem_idx - 1;  % 1->0 (No), 2->1 (Yes)
+
+    [par_idx, tf] = listdlg('PromptString', 'Use parallel processing:', ...
+                            'SelectionMode', 'single', ...
+                            'ListString', {'No', 'Yes'}, ...
+                            'InitialValue', 1, ...
+                            'ListSize', [250, 80], ...
+                            'Name', 'Parallel Processing');
+    if ~tf
+        params = [];
+        return;
+    end
+    params.use_parallel_processing = (par_idx == 2);  % true if Yes selected
+
+    [fig_idx, tf] = listdlg('PromptString', 'Show figures during processing:', ...
+                            'SelectionMode', 'single', ...
+                            'ListString', {'No (off)', 'Yes (on)'}, ...
+                            'InitialValue', 1, ...
+                            'ListSize', [250, 80], ...
+                            'Name', 'Figures Visibility');
+    if ~tf
+        params = [];
+        return;
+    end
+    params.figures_visibility = {'off', 'on'}{fig_idx};
+
+    % ===== POPUP 4: Alignment Type =====
     alignment_types = {'Translations', 'Translations and Rotations', 'Non-rigid'};
     [alignment_idx, tf] = listdlg('PromptString', 'Select alignment type:', ...
                                   'SelectionMode', 'single', ...
                                   'ListString', alignment_types, ...
                                   'InitialValue', 2, ...
+                                  'ListSize', [300, 80], ...
                                   'Name', 'Alignment Type');
     if ~tf
         params = [];
@@ -156,31 +158,13 @@ function params = collect_pipeline_parameters()
     end
     params.alignment_type = alignment_types{alignment_idx};
 
-    prompt3 = {
-        'Maximal rotation (degrees):'
-        'Transformation smoothness (0.5-3):'
-        'Reference session index (1 to N):'
-    };
-    dlgtitle3 = 'CellReg Alignment Parameters';
-    dims3 = [1 60];
-    definput3 = {'30', '2', '1'};
-    answer3 = inputdlg(prompt3, dlgtitle3, dims3, definput3);
-
-    if isempty(answer3)
-        params = [];
-        return;
-    end
-
-    params.maximal_rotation = str2double(answer3{1});
-    params.transformation_smoothness = str2double(answer3{2});
-    params.reference_session_index = str2double(answer3{3});
-
-    % Dialog 4: CellReg Registration Parameters - Use dropdowns for choices
+    % ===== POPUP 5: Registration Approach =====
     registration_approaches = {'Probabilistic', 'Simple threshold'};
     [reg_idx, tf] = listdlg('PromptString', 'Select registration approach:', ...
                             'SelectionMode', 'single', ...
                             'ListString', registration_approaches, ...
                             'InitialValue', 1, ...
+                            'ListSize', [300, 80], ...
                             'Name', 'Registration Approach');
     if ~tf
         params = [];
@@ -188,11 +172,13 @@ function params = collect_pipeline_parameters()
     end
     params.registration_approach = registration_approaches{reg_idx};
 
+    % ===== POPUP 6: Model Type =====
     model_types = {'Spatial correlation', 'Centroid distance', 'best_model_string'};
     [model_idx, tf] = listdlg('PromptString', 'Select model type:', ...
                               'SelectionMode', 'single', ...
                               'ListString', model_types, ...
                               'InitialValue', 3, ...
+                              'ListSize', [300, 80], ...
                               'Name', 'Model Type');
     if ~tf
         params = [];
@@ -200,30 +186,35 @@ function params = collect_pipeline_parameters()
     end
     params.model_type = model_types{model_idx};
 
-    prompt4 = {
+    % ===== POPUP 7: Advanced CellReg Parameters =====
+    prompt2 = {
+        'Maximal rotation (degrees):'
+        'Transformation smoothness (0.5-3):'
         'Sufficient correlation centroids:'
         'Sufficient correlation footprints:'
         'Maximal distance (micrometers):'
         'P_same certainty threshold:'
         'P_same threshold:'
     };
-    dlgtitle4 = 'CellReg Registration Parameters';
-    dims4 = [1 60];
-    definput4 = {'0.2', '0.3', '10', '0.95', '0.5'};
-    answer4 = inputdlg(prompt4, dlgtitle4, dims4, definput4);
+    dlgtitle2 = 'Pipeline Configuration - Advanced Parameters';
+    dims2 = [1 70];
+    definput2 = {'30', '2', '0.2', '0.3', '10', '0.95', '0.5'};
+    answer2 = inputdlg(prompt2, dlgtitle2, dims2, definput2);
 
-    if isempty(answer4)
+    if isempty(answer2)
         params = [];
         return;
     end
 
-    params.sufficient_correlation_centroids = str2double(answer4{1});
-    params.sufficient_correlation_footprints = str2double(answer4{2});
-    params.maximal_distance = str2double(answer4{3});
-    params.p_same_certainty_threshold = str2double(answer4{4});
-    params.p_same_threshold = str2double(answer4{5});
+    params.maximal_rotation = str2double(answer2{1});
+    params.transformation_smoothness = str2double(answer2{2});
+    params.sufficient_correlation_centroids = str2double(answer2{3});
+    params.sufficient_correlation_footprints = str2double(answer2{4});
+    params.maximal_distance = str2double(answer2{5});
+    params.p_same_certainty_threshold = str2double(answer2{6});
+    params.p_same_threshold = str2double(answer2{7});
     params.initial_registration_type = 'best_model_string';
-    
+
     % Create necessary directories
     if ~exist(params.temp_data_path, 'dir')
         mkdir(params.temp_data_path);
@@ -232,7 +223,7 @@ function params = collect_pipeline_parameters()
         mkdir(params.results_directory);
         fprintf('Created results directory: %s\n', params.results_directory);
     end
-    
+
     % Display summary
     fprintf('\n=== PIPELINE CONFIGURATION ===\n');
     fprintf('Subject ID: %d\n', params.subject_id);
@@ -241,8 +232,11 @@ function params = collect_pipeline_parameters()
     fprintf('Temporary data path: %s\n', params.temp_data_path);
     fprintf('Results will be saved to: %s\n', params.results_directory);
     fprintf('Microns per pixel: %.2f\n', params.microns_per_pixel);
+    fprintf('Memory efficient: %s\n', {'No', 'Yes'}{params.memory_efficient_run + 1});
+    fprintf('Parallel processing: %s\n', {'No', 'Yes'}{params.use_parallel_processing + 1});
+    fprintf('Figures visibility: %s\n', params.figures_visibility);
     fprintf('============================\n\n');
-    
+
 end
 
 %% ========================================================================
