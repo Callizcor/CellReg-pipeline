@@ -68,153 +68,251 @@ end
 %% ========================================================================
 
 function params = collect_pipeline_parameters()
-% COLLECT_PIPELINE_PARAMETERS - Consolidated parameter collection with minimal popups
+% COLLECT_PIPELINE_PARAMETERS - Single unified dialog with all parameters
 
-    % ===== POPUP 1: Basic Data Parameters =====
-    prompt1 = {
-        'Subject ID:'
-        'Sessions (comma-separated, e.g., 1,2,3,6,7,8):'
-        'Temporary data path (for .mat files):'
-        'Cell probability threshold (0-1):'
-        'Microns per pixel:'
-        'Number of zoomed cell figures:'
-        'Reference session index (1 to N):'
-    };
-    dlgtitle1 = 'Pipeline Configuration - Basic Parameters';
-    dims1 = [1 70];
-    definput1 = {'101106', '3,4,7', './temp_data/', '0.5', '1.367', '50', '1'};
-    answer1 = inputdlg(prompt1, dlgtitle1, dims1, definput1);
+    % Create main parameter dialog figure
+    fig = figure('Position', [300, 150, 600, 750], ...
+                 'MenuBar', 'none', ...
+                 'NumberTitle', 'off', ...
+                 'Name', 'CellReg Pipeline Configuration', ...
+                 'Resize', 'off', ...
+                 'WindowStyle', 'modal');
 
-    if isempty(answer1)
+    % Store parameters in figure UserData
+    params_data = struct();
+    params_data.cancelled = false;
+    set(fig, 'UserData', params_data);
+
+    % Y position tracker (start from top)
+    y_pos = 700;
+    x_label = 20;
+    x_input = 240;
+    row_height = 28;
+
+    % ===== SECTION 1: Basic Data Parameters =====
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 550, 20], ...
+              'String', '=== Basic Data Parameters ===', 'FontWeight', 'bold', ...
+              'HorizontalAlignment', 'left', 'FontSize', 11);
+    y_pos = y_pos - row_height;
+
+    % Subject ID
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Subject ID:', 'HorizontalAlignment', 'left');
+    h_subject = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 100, 22], ...
+                          'String', '101106');
+    y_pos = y_pos - row_height;
+
+    % Sessions
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Sessions (comma-separated):', 'HorizontalAlignment', 'left');
+    h_sessions = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 200, 22], ...
+                           'String', '3,4,7');
+    y_pos = y_pos - row_height;
+
+    % Temp data path
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Temporary data path:', 'HorizontalAlignment', 'left');
+    h_temp_path = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 300, 22], ...
+                            'String', './temp_data/');
+    y_pos = y_pos - row_height;
+
+    % Cell prob threshold
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Cell probability threshold:', 'HorizontalAlignment', 'left');
+    h_cell_prob = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                            'String', '0.5');
+    y_pos = y_pos - row_height;
+
+    % Microns per pixel
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Microns per pixel:', 'HorizontalAlignment', 'left');
+    h_microns = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                          'String', '1.367');
+    y_pos = y_pos - row_height;
+
+    % Number of zoomed figures
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Number of zoomed figures:', 'HorizontalAlignment', 'left');
+    h_n_zoomed = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                           'String', '50');
+    y_pos = y_pos - row_height;
+
+    % Reference session index
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Reference session index:', 'HorizontalAlignment', 'left');
+    h_ref_session = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                              'String', '1');
+    y_pos = y_pos - row_height - 5;
+
+    % ===== SECTION 2: Processing Options (Dropdowns) =====
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 550, 20], ...
+              'String', '=== Processing Options ===', 'FontWeight', 'bold', ...
+              'HorizontalAlignment', 'left', 'FontSize', 11);
+    y_pos = y_pos - row_height;
+
+    % Memory efficient
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Memory efficient run:', 'HorizontalAlignment', 'left');
+    h_memory = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 150, 22], ...
+                         'String', {'No', 'Yes'}, 'Value', 1);
+    y_pos = y_pos - row_height;
+
+    % Parallel processing
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Use parallel processing:', 'HorizontalAlignment', 'left');
+    h_parallel = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 150, 22], ...
+                           'String', {'No', 'Yes'}, 'Value', 1);
+    y_pos = y_pos - row_height;
+
+    % Figures visibility
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Show figures:', 'HorizontalAlignment', 'left');
+    h_figures = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 150, 22], ...
+                          'String', {'No (off)', 'Yes (on)'}, 'Value', 1);
+    y_pos = y_pos - row_height;
+
+    % Alignment type
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Alignment type:', 'HorizontalAlignment', 'left');
+    h_alignment = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 250, 22], ...
+                            'String', {'Translations', 'Translations and Rotations', 'Non-rigid'}, ...
+                            'Value', 2);
+    y_pos = y_pos - row_height;
+
+    % Registration approach
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Registration approach:', 'HorizontalAlignment', 'left');
+    h_registration = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 200, 22], ...
+                               'String', {'Probabilistic', 'Simple threshold'}, 'Value', 1);
+    y_pos = y_pos - row_height;
+
+    % Model type
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Model type:', 'HorizontalAlignment', 'left');
+    h_model = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 200, 22], ...
+                        'String', {'Spatial correlation', 'Centroid distance', 'best_model_string'}, ...
+                        'Value', 3);
+    y_pos = y_pos - row_height - 5;
+
+    % ===== SECTION 3: Advanced Parameters =====
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 550, 20], ...
+              'String', '=== Advanced CellReg Parameters ===', 'FontWeight', 'bold', ...
+              'HorizontalAlignment', 'left', 'FontSize', 11);
+    y_pos = y_pos - row_height;
+
+    % Maximal rotation
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Maximal rotation (degrees):', 'HorizontalAlignment', 'left');
+    h_max_rot = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                          'String', '30');
+    y_pos = y_pos - row_height;
+
+    % Transformation smoothness
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Transformation smoothness:', 'HorizontalAlignment', 'left');
+    h_smooth = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                         'String', '2');
+    y_pos = y_pos - row_height;
+
+    % Sufficient correlation centroids
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Sufficient corr. centroids:', 'HorizontalAlignment', 'left');
+    h_corr_cent = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                            'String', '0.2');
+    y_pos = y_pos - row_height;
+
+    % Sufficient correlation footprints
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Sufficient corr. footprints:', 'HorizontalAlignment', 'left');
+    h_corr_foot = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                            'String', '0.3');
+    y_pos = y_pos - row_height;
+
+    % Maximal distance
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'Maximal distance (μm):', 'HorizontalAlignment', 'left');
+    h_max_dist = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                           'String', '10');
+    y_pos = y_pos - row_height;
+
+    % P_same certainty threshold
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'P_same certainty threshold:', 'HorizontalAlignment', 'left');
+    h_p_cert = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                         'String', '0.95');
+    y_pos = y_pos - row_height;
+
+    % P_same threshold
+    uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
+              'String', 'P_same threshold:', 'HorizontalAlignment', 'left');
+    h_p_same = uicontrol('Style', 'edit', 'Position', [x_input, y_pos, 80, 22], ...
+                         'String', '0.5');
+    y_pos = y_pos - 40;
+
+    % ===== OK and Cancel Buttons =====
+    uicontrol('Style', 'pushbutton', 'Position', [200, 20, 80, 30], ...
+              'String', 'OK', 'FontSize', 10, 'FontWeight', 'bold', ...
+              'Callback', @close_ok);
+
+    uicontrol('Style', 'pushbutton', 'Position', [320, 20, 80, 30], ...
+              'String', 'Cancel', 'FontSize', 10, ...
+              'Callback', @close_cancel);
+
+    % Wait for user to close dialog
+    uiwait(fig);
+
+    % Check if cancelled
+    params_data = get(fig, 'UserData');
+    if isfield(params_data, 'cancelled') && params_data.cancelled
         params = [];
+        delete(fig);
         return;
     end
 
-    params.subject_id = str2double(answer1{1});
-    sessions_str = strrep(answer1{2}, ' ', '');
+    % Extract all parameters
+    params.subject_id = str2double(get(h_subject, 'String'));
+    sessions_str = strrep(get(h_sessions, 'String'), ' ', '');
     params.sessions = str2num(['[' sessions_str ']']);
-    params.temp_data_path = answer1{3};
-    params.cell_prob_threshold = str2double(answer1{4});
-    params.microns_per_pixel = str2double(answer1{5});
-    params.n_zoomed = str2double(answer1{6});
-    params.reference_session_index = str2double(answer1{7});
+    params.temp_data_path = get(h_temp_path, 'String');
+    params.cell_prob_threshold = str2double(get(h_cell_prob, 'String'));
+    params.microns_per_pixel = str2double(get(h_microns, 'String'));
+    params.n_zoomed = str2double(get(h_n_zoomed, 'String'));
+    params.reference_session_index = str2double(get(h_ref_session, 'String'));
 
-    % ===== POPUP 2: Results Directory =====
+    % Processing options
+    params.memory_efficient_run = get(h_memory, 'Value') - 1;  % 1->0 (No), 2->1 (Yes)
+    params.use_parallel_processing = (get(h_parallel, 'Value') == 2);
+    visibility_options = {'off', 'on'};
+    params.figures_visibility = visibility_options{get(h_figures, 'Value')};
+
+    % Registration options
+    alignment_types = {'Translations', 'Translations and Rotations', 'Non-rigid'};
+    params.alignment_type = alignment_types{get(h_alignment, 'Value')};
+    registration_approaches = {'Probabilistic', 'Simple threshold'};
+    params.registration_approach = registration_approaches{get(h_registration, 'Value')};
+    model_types = {'Spatial correlation', 'Centroid distance', 'best_model_string'};
+    params.model_type = model_types{get(h_model, 'Value')};
+
+    % Advanced parameters
+    params.maximal_rotation = str2double(get(h_max_rot, 'String'));
+    params.transformation_smoothness = str2double(get(h_smooth, 'String'));
+    params.sufficient_correlation_centroids = str2double(get(h_corr_cent, 'String'));
+    params.sufficient_correlation_footprints = str2double(get(h_corr_foot, 'String'));
+    params.maximal_distance = str2double(get(h_max_dist, 'String'));
+    params.p_same_certainty_threshold = str2double(get(h_p_cert, 'String'));
+    params.p_same_threshold = str2double(get(h_p_same, 'String'));
+    params.initial_registration_type = 'best_model_string';
+
+    % Close dialog
+    delete(fig);
+
+    % Now select results directory
     results_directory = uigetdir(pwd, 'Select directory to save results');
     if isequal(results_directory, 0)
         results_directory = fullfile(pwd, 'cellreg_results');
         fprintf('No directory selected. Using default: %s\n', results_directory);
     end
     params.results_directory = results_directory;
-
-    % ===== POPUP 3: Processing Options (Yes/No choices) =====
-    [mem_idx, tf] = listdlg('PromptString', 'Memory efficient run:', ...
-                            'SelectionMode', 'single', ...
-                            'ListString', {'No', 'Yes'}, ...
-                            'InitialValue', 1, ...
-                            'ListSize', [250, 80], ...
-                            'Name', 'Memory Efficient');
-    if ~tf
-        params = [];
-        return;
-    end
-    params.memory_efficient_run = mem_idx - 1;  % 1->0 (No), 2->1 (Yes)
-
-    [par_idx, tf] = listdlg('PromptString', 'Use parallel processing:', ...
-                            'SelectionMode', 'single', ...
-                            'ListString', {'No', 'Yes'}, ...
-                            'InitialValue', 1, ...
-                            'ListSize', [250, 80], ...
-                            'Name', 'Parallel Processing');
-    if ~tf
-        params = [];
-        return;
-    end
-    params.use_parallel_processing = (par_idx == 2);  % true if Yes selected
-
-    [fig_idx, tf] = listdlg('PromptString', 'Show figures during processing:', ...
-                            'SelectionMode', 'single', ...
-                            'ListString', {'No (off)', 'Yes (on)'}, ...
-                            'InitialValue', 1, ...
-                            'ListSize', [250, 80], ...
-                            'Name', 'Figures Visibility');
-    if ~tf
-        params = [];
-        return;
-    end
-    visibility_options = {'off', 'on'};
-    params.figures_visibility = visibility_options{fig_idx};
-
-    % ===== POPUP 4: Alignment Type =====
-    alignment_types = {'Translations', 'Translations and Rotations', 'Non-rigid'};
-    [alignment_idx, tf] = listdlg('PromptString', 'Select alignment type:', ...
-                                  'SelectionMode', 'single', ...
-                                  'ListString', alignment_types, ...
-                                  'InitialValue', 2, ...
-                                  'ListSize', [300, 80], ...
-                                  'Name', 'Alignment Type');
-    if ~tf
-        params = [];
-        return;
-    end
-    params.alignment_type = alignment_types{alignment_idx};
-
-    % ===== POPUP 5: Registration Approach =====
-    registration_approaches = {'Probabilistic', 'Simple threshold'};
-    [reg_idx, tf] = listdlg('PromptString', 'Select registration approach:', ...
-                            'SelectionMode', 'single', ...
-                            'ListString', registration_approaches, ...
-                            'InitialValue', 1, ...
-                            'ListSize', [300, 80], ...
-                            'Name', 'Registration Approach');
-    if ~tf
-        params = [];
-        return;
-    end
-    params.registration_approach = registration_approaches{reg_idx};
-
-    % ===== POPUP 6: Model Type =====
-    model_types = {'Spatial correlation', 'Centroid distance', 'best_model_string'};
-    [model_idx, tf] = listdlg('PromptString', 'Select model type:', ...
-                              'SelectionMode', 'single', ...
-                              'ListString', model_types, ...
-                              'InitialValue', 3, ...
-                              'ListSize', [300, 80], ...
-                              'Name', 'Model Type');
-    if ~tf
-        params = [];
-        return;
-    end
-    params.model_type = model_types{model_idx};
-
-    % ===== POPUP 7: Advanced CellReg Parameters =====
-    prompt2 = {
-        'Maximal rotation (degrees):'
-        'Transformation smoothness (0.5-3):'
-        'Sufficient correlation centroids:'
-        'Sufficient correlation footprints:'
-        'Maximal distance (micrometers):'
-        'P_same certainty threshold:'
-        'P_same threshold:'
-    };
-    dlgtitle2 = 'Pipeline Configuration - Advanced Parameters';
-    dims2 = [1 70];
-    definput2 = {'30', '2', '0.2', '0.3', '10', '0.95', '0.5'};
-    answer2 = inputdlg(prompt2, dlgtitle2, dims2, definput2);
-
-    if isempty(answer2)
-        params = [];
-        return;
-    end
-
-    params.maximal_rotation = str2double(answer2{1});
-    params.transformation_smoothness = str2double(answer2{2});
-    params.sufficient_correlation_centroids = str2double(answer2{3});
-    params.sufficient_correlation_footprints = str2double(answer2{4});
-    params.maximal_distance = str2double(answer2{5});
-    params.p_same_certainty_threshold = str2double(answer2{6});
-    params.p_same_threshold = str2double(answer2{7});
-    params.initial_registration_type = 'best_model_string';
 
     % Create necessary directories
     if ~exist(params.temp_data_path, 'dir')
@@ -245,6 +343,21 @@ function params = collect_pipeline_parameters()
     end
     fprintf('Figures visibility: %s\n', params.figures_visibility);
     fprintf('============================\n\n');
+
+    % Nested callback functions
+    function close_ok(~, ~)
+        params_data = get(fig, 'UserData');
+        params_data.cancelled = false;
+        set(fig, 'UserData', params_data);
+        uiresume(fig);
+    end
+
+    function close_cancel(~, ~)
+        params_data = get(fig, 'UserData');
+        params_data.cancelled = true;
+        set(fig, 'UserData', params_data);
+        uiresume(fig);
+    end
 
 end
 
