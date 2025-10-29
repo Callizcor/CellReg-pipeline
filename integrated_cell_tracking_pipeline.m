@@ -96,25 +96,45 @@ function params = collect_pipeline_parameters()
     % Dialog 2: CellReg Basic Parameters
     prompt2 = {
         'Microns per pixel:'
-        'Memory efficient run (0 or 1):'
-        'Use parallel processing (true/false):'
-        'Show figures during processing (on/off):'
+        'Memory efficient run:'
+        'Use parallel processing:'
+        'Show figures during processing:'
+        'Number of zoomed cell figures to generate:'
     };
     dlgtitle2 = 'CellReg Basic Parameters';
     dims2 = [1 60];
-    definput2 = {'1.367', '0', 'true', 'off'};
+    definput2 = {'1.367', '0 (No)', 'true (Yes)', 'off (No)', '50'};
     answer2 = inputdlg(prompt2, dlgtitle2, dims2, definput2);
-    
+
     if isempty(answer2)
         params = [];
         return;
     end
-    
+
     params.microns_per_pixel = str2double(answer2{1});
-    params.memory_efficient_run = str2double(answer2{2});
-    params.use_parallel_processing = str2num(answer2{3});
-    params.figures_visibility = answer2{4};
-    
+    % Parse memory efficient: accept 0, 1, 'no', 'yes'
+    mem_str = lower(strtrim(answer2{2}));
+    if contains(mem_str, 'yes') || contains(mem_str, '1')
+        params.memory_efficient_run = 1;
+    else
+        params.memory_efficient_run = 0;
+    end
+    % Parse parallel processing
+    par_str = lower(strtrim(answer2{3}));
+    if contains(par_str, 'yes') || contains(par_str, 'true')
+        params.use_parallel_processing = true;
+    else
+        params.use_parallel_processing = false;
+    end
+    % Parse figures visibility
+    fig_str = lower(strtrim(answer2{4}));
+    if contains(fig_str, 'yes') || contains(fig_str, 'on')
+        params.figures_visibility = 'on';
+    else
+        params.figures_visibility = 'off';
+    end
+    params.n_zoomed = str2double(answer2{5});
+
     % Select results directory using GUI
     results_directory = uigetdir(pwd, 'Select directory to save results');
     if isequal(results_directory, 0)
@@ -122,56 +142,86 @@ function params = collect_pipeline_parameters()
         fprintf('No directory selected. Using default: %s\n', results_directory);
     end
     params.results_directory = results_directory;
-    
-    % Dialog 3: CellReg Alignment Parameters
+
+    % Dialog 3: CellReg Alignment Parameters - Use dropdown for alignment type
+    alignment_types = {'Translations', 'Translations and Rotations', 'Non-rigid'};
+    [alignment_idx, tf] = listdlg('PromptString', 'Select alignment type:', ...
+                                  'SelectionMode', 'single', ...
+                                  'ListString', alignment_types, ...
+                                  'InitialValue', 2, ...
+                                  'Name', 'Alignment Type');
+    if ~tf
+        params = [];
+        return;
+    end
+    params.alignment_type = alignment_types{alignment_idx};
+
     prompt3 = {
-        'Alignment type (Translations/Translations and Rotations/Non-rigid):'
         'Maximal rotation (degrees):'
         'Transformation smoothness (0.5-3):'
         'Reference session index (1 to N):'
     };
     dlgtitle3 = 'CellReg Alignment Parameters';
     dims3 = [1 60];
-    definput3 = {'Translations and Rotations', '30', '2', '1'};
+    definput3 = {'30', '2', '1'};
     answer3 = inputdlg(prompt3, dlgtitle3, dims3, definput3);
-    
+
     if isempty(answer3)
         params = [];
         return;
     end
-    
-    params.alignment_type = answer3{1};
-    params.maximal_rotation = str2double(answer3{2});
-    params.transformation_smoothness = str2double(answer3{3});
-    params.reference_session_index = str2double(answer3{4});
-    
-    % Dialog 4: CellReg Registration Parameters
+
+    params.maximal_rotation = str2double(answer3{1});
+    params.transformation_smoothness = str2double(answer3{2});
+    params.reference_session_index = str2double(answer3{3});
+
+    % Dialog 4: CellReg Registration Parameters - Use dropdowns for choices
+    registration_approaches = {'Probabilistic', 'Simple threshold'};
+    [reg_idx, tf] = listdlg('PromptString', 'Select registration approach:', ...
+                            'SelectionMode', 'single', ...
+                            'ListString', registration_approaches, ...
+                            'InitialValue', 1, ...
+                            'Name', 'Registration Approach');
+    if ~tf
+        params = [];
+        return;
+    end
+    params.registration_approach = registration_approaches{reg_idx};
+
+    model_types = {'Spatial correlation', 'Centroid distance', 'best_model_string'};
+    [model_idx, tf] = listdlg('PromptString', 'Select model type:', ...
+                              'SelectionMode', 'single', ...
+                              'ListString', model_types, ...
+                              'InitialValue', 3, ...
+                              'Name', 'Model Type');
+    if ~tf
+        params = [];
+        return;
+    end
+    params.model_type = model_types{model_idx};
+
     prompt4 = {
         'Sufficient correlation centroids:'
         'Sufficient correlation footprints:'
         'Maximal distance (micrometers):'
         'P_same certainty threshold:'
-        'Registration approach (Probabilistic/Simple threshold):'
-        'Model type (Spatial correlation/Centroid distance/best_model_string):'
         'P_same threshold:'
     };
     dlgtitle4 = 'CellReg Registration Parameters';
     dims4 = [1 60];
-    definput4 = {'0.2', '0.3', '10', '0.95', 'Probabilistic', 'best_model_string', '0.5'};
+    definput4 = {'0.2', '0.3', '10', '0.95', '0.5'};
     answer4 = inputdlg(prompt4, dlgtitle4, dims4, definput4);
-    
+
     if isempty(answer4)
         params = [];
         return;
     end
-    
+
     params.sufficient_correlation_centroids = str2double(answer4{1});
     params.sufficient_correlation_footprints = str2double(answer4{2});
     params.maximal_distance = str2double(answer4{3});
     params.p_same_certainty_threshold = str2double(answer4{4});
-    params.registration_approach = answer4{5};
-    params.model_type = answer4{6};
-    params.p_same_threshold = str2double(answer4{7});
+    params.p_same_threshold = str2double(answer4{5});
     params.initial_registration_type = 'best_model_string';
     
     % Create necessary directories
@@ -1191,11 +1241,15 @@ function run_cellreg_pipeline(file_names, params)
     [adjusted_spatial_footprints, adjusted_FOV, adjusted_x_size, adjusted_y_size, adjustment_zero_padding] = ...
         adjust_FOV_size(normalized_spatial_footprints);
     clear normalized_spatial_footprints
-    
+
+    % Suppress diary during centroid calculations to avoid progress bar clutter
+    diary off;
     [adjusted_footprints_projections] = compute_footprints_projections(adjusted_spatial_footprints);
     [centroid_locations] = compute_centroid_locations(adjusted_spatial_footprints, microns_per_pixel);
     [centroid_projections] = compute_centroids_projections(centroid_locations, adjusted_spatial_footprints);
-    
+    diary on;
+    fprintf('  Computed centroids and projections\n');
+
     % Alignment
     alignment_type = params.alignment_type;
     reference_session_index = params.reference_session_index;
@@ -1707,7 +1761,7 @@ function run_cellreg_pipeline(file_names, params)
     
     fprintf('%d cells were found\n', size(optimal_cell_to_index_map, 1));
     fprintf('Done\n');
-    
+
     % Plot histogram
     fig = figure;
     histogram(nonzero_counts);
@@ -1718,33 +1772,6 @@ function run_cellreg_pipeline(file_names, params)
     saveas(fig, fullfile(results_directory, sprintf('Histogram_threshold%.2f_resolution%.2f_maxdist%.2f.png', ...
                                                     p_same_threshold, microns_per_pixel, maximal_distance)));
     close(fig);
-    
-    fprintf('\nGenerating cell distance heatmaps...\n');
-    cells_multi_session = find(nonzero_counts >= 3);
-    
-    if ~isempty(cells_multi_session)
-        heatmap_dir = fullfile(figures_directory, 'Cell_Distance_Heatmaps');
-        if ~exist(heatmap_dir, 'dir')
-            mkdir(heatmap_dir);
-        end
-        
-        n_heatmaps = min(20, length(cells_multi_session));
-        for i = 1:n_heatmaps
-            cell_idx = cells_multi_session(i);
-            try
-                % FIXED: Pass figures_visibility parameter
-                plot_single_cell_heatmap(optimal_cell_to_index_map, centroid_locations_corrected, ...
-                                        microns_per_pixel, heatmap_dir, file_names, cell_idx, ...
-                                        session_numbers, figures_visibility);
-            catch ME
-                fprintf('  Warning: Failed to create heatmap for cell %d: %s\n', cell_idx, ME.message);
-            end
-        end
-        
-        fprintf('Created %d cell distance heatmaps in: %s\n', n_heatmaps, heatmap_dir);
-    else
-        fprintf('No cells found appearing in 3+ sessions. Skipping heatmap generation.\n');
-    end
     
     % FIX: Generate zoomed contour comparison with session numbers
     % Load enhanced mean images for zoomed comparisons
@@ -1771,23 +1798,34 @@ function run_cellreg_pipeline(file_names, params)
     end
     
     fprintf('\nGenerating zoomed cell contour comparisons...\n');
-    cells_all_sessions = find(nonzero_counts == number_of_sessions);
-    
-    if ~isempty(cells_all_sessions)
+    % Select cells appearing in 2+ sessions (not just all sessions)
+    cells_multi_session = find(nonzero_counts >= 2);
+
+    if ~isempty(cells_multi_session)
         zoom_dir = fullfile(figures_directory, 'Zoomed_Cell_Comparisons');
         if ~exist(zoom_dir, 'dir')
             mkdir(zoom_dir);
         end
-        
+
         if strcmp(registration_approach, 'Probabilistic') && exist('p_same_registered_pairs', 'var')
             has_p_same = true;
         else
             has_p_same = false;
         end
-        
-        n_zoomed = min(50, length(cells_all_sessions));
-        for i = 1:n_zoomed
-            cell_idx = cells_all_sessions(i);
+
+        % Use user-specified n_zoomed parameter
+        n_zoomed = min(params.n_zoomed, length(cells_multi_session));
+        % Sample evenly across the range of cells
+        if length(cells_multi_session) > n_zoomed
+            sample_indices = round(linspace(1, length(cells_multi_session), n_zoomed));
+        else
+            sample_indices = 1:length(cells_multi_session);
+        end
+
+        fprintf('  Sampling %d cells from %d multi-session cells\n', n_zoomed, length(cells_multi_session));
+
+        for i = 1:length(sample_indices)
+            cell_idx = cells_multi_session(sample_indices(i));
             try
                 if has_p_same
                     plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
@@ -1815,7 +1853,96 @@ function run_cellreg_pipeline(file_names, params)
     else
         fprintf('No cells found appearing in all sessions. Skipping zoomed comparison generation.\n');
     end
-    
+
+    % DEBUG: Create standalone P_same heatmap figures for testing
+    if has_p_same && ~isempty(cells_multi_session)
+        fprintf('\n=== DEBUG: Creating standalone P_same heatmap figures ===\n');
+
+        debug_dir = fullfile(figures_directory, 'Debug_PSame_Heatmaps');
+        if ~exist(debug_dir, 'dir')
+            mkdir(debug_dir);
+        end
+
+        % Test with first 5 cells (or fewer if not enough cells)
+        n_debug_cells = min(5, length(cells_multi_session));
+        fprintf('  Testing P_same heatmaps for %d cells...\n', n_debug_cells);
+
+        for i = 1:n_debug_cells
+            cell_idx = cells_multi_session(i);
+            cell_indices = optimal_cell_to_index_map(cell_idx, :);
+            sessions_present = find(cell_indices > 0);
+            n_sessions_present = length(sessions_present);
+
+            if n_sessions_present >= 2
+                try
+                    % Extract P_same matrix
+                    p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index_map, ...
+                                                           p_same_registered_pairs, sessions_present);
+
+                    % Create session labels
+                    session_labels = cell(1, n_sessions_present);
+                    for s = 1:n_sessions_present
+                        session_labels{s} = sprintf('S%d', session_numbers(sessions_present(s)));
+                    end
+
+                    % Create standalone figure
+                    fig = figure('Position', [200, 200, 600, 500], 'Visible', figures_visibility);
+
+                    imagesc(p_same_matrix);
+                    set(gca, 'XTick', 1:n_sessions_present, 'XTickLabel', session_labels);
+                    set(gca, 'YTick', 1:n_sessions_present, 'YTickLabel', session_labels);
+                    xlabel('Session', 'FontSize', 12, 'FontWeight', 'bold');
+                    ylabel('Session', 'FontSize', 12, 'FontWeight', 'bold');
+                    title(sprintf('Cell %d - P(Same Cell) Matrix', cell_idx), ...
+                          'FontSize', 14, 'FontWeight', 'bold');
+
+                    colormap(jet);
+                    c = colorbar;
+                    c.Label.String = 'Probability';
+                    c.Label.FontSize = 12;
+                    caxis([0 1]);
+
+                    % Add text annotations
+                    for ii = 1:n_sessions_present
+                        for jj = 1:n_sessions_present
+                            if ~isnan(p_same_matrix(ii, jj))
+                                if p_same_matrix(ii, jj) > 0.5
+                                    text_color = 'white';
+                                else
+                                    text_color = 'black';
+                                end
+                                text(jj, ii, sprintf('%.3f', p_same_matrix(ii, jj)), ...
+                                     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+                                     'FontSize', 10, 'Color', text_color, 'FontWeight', 'bold');
+                            else
+                                text(jj, ii, 'N/A', ...
+                                     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+                                     'FontSize', 8, 'Color', 'black');
+                            end
+                        end
+                    end
+
+                    axis square;
+
+                    % Save figure
+                    filename = sprintf('DEBUG_Cell_%d_PSame_Heatmap.png', cell_idx);
+                    saveas(fig, fullfile(debug_dir, filename));
+                    close(fig);
+
+                    fprintf('    Cell %d: P_same heatmap saved (sessions: [%s])\n', ...
+                            cell_idx, sprintf('%d ', session_numbers(sessions_present)));
+
+                catch ME
+                    fprintf('    Warning: Failed to create P_same heatmap for cell %d: %s\n', ...
+                            cell_idx, ME.message);
+                end
+            end
+        end
+
+        fprintf('  Created debug P_same heatmaps in: %s\n', debug_dir);
+        fprintf('=== END DEBUG ===\n\n');
+    end
+
    % Generate Venn diagram of shared cells
     fprintf('\nGenerating session overlap visualization...\n');
     try
