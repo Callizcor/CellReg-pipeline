@@ -52,10 +52,15 @@ function integrated_cell_tracking_pipeline()
     
     fprintf('\n=== PIPELINE COMPLETED SUCCESSFULLY ===\n');
     fprintf('Summary log saved to: %s\n', diary_file);
-    
+
     % Turn off diary
     diary off;
-    
+
+    % Show success notification popup
+    msgbox(sprintf('Pipeline completed successfully!\n\nResults saved to:\n%s\n\nLog file:\n%s', ...
+                   params.results_directory, diary_file), ...
+           'Pipeline Complete', 'help', 'modal');
+
 end
 
 %% ========================================================================
@@ -1200,7 +1205,10 @@ function run_cellreg_pipeline(file_names, params)
     
     % Suppress alignment warnings
     warning('off', 'all');
-    
+
+    % Suppress diary during alignment to avoid progress bar clutter
+    diary off;
+
     if strcmp(alignment_type, 'Translations and Rotations')
         maximal_rotation = params.maximal_rotation;
         [spatial_footprints_corrected, centroid_locations_corrected, ...
@@ -1232,9 +1240,12 @@ function run_cellreg_pipeline(file_names, params)
                         sufficient_correlation_centroids, sufficient_correlation_footprints, ...
                         use_parallel_processing);
     end
-    
+
+    % Resume diary after alignment
+    diary on;
+
     warning('on', 'all');
-    
+
     % FIX: Custom data quality evaluation with size mismatch handling
     fprintf('  Evaluating data quality...\n');
     
@@ -1564,8 +1575,13 @@ function run_cellreg_pipeline(file_names, params)
         all_figs = findall(0, 'Type', 'figure');
         if ~isempty(all_figs)
             fig = all_figs(1);
-            figure(fig);
-            
+            % FIXED: Don't call figure(fig) when visibility is off - it makes the figure visible
+            if strcmp(figures_visibility, 'on')
+                figure(fig);
+            else
+                set(0, 'CurrentFigure', fig);  % Select figure without making it visible
+            end
+
             % FIXED: Update main title without trying to adjust Position
             % sgtitle returns an annotation object, not a text object with Position property
             sgtitle(sprintf('Stage 5 - Projections - Final Registration (Total cells in all sessions: %d)', ...
@@ -1811,7 +1827,7 @@ function run_cellreg_pipeline(file_names, params)
         end
         
         plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory, ...
-                                 figures_visibility, session_numbers, subject_id);
+                                 figures_visibility, session_numbers, subject_id, nonzero_counts);
         fprintf('Created session overlap visualization\n');
     catch ME
         fprintf('  Warning: Failed to create session overlap visualization: %s\n', ME.message);
@@ -2203,9 +2219,8 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
             imshow(zoomed_3x_adj);
             hold on;
             
-            % Calculate cell area from full footprint
-            binary_full = cell_footprint > (0.1 * max(cell_footprint(:)));
-            area_pixels = sum(binary_full(:));
+            % Calculate cell area from actual ROI pixels (non-zero pixels in footprint)
+            area_pixels = sum(cell_footprint(:) > 0);
             area_um2 = area_pixels * (microns_per_pixel^2);
             cell_areas(i) = area_um2;
 
@@ -2310,69 +2325,69 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
     end
 
     % Determine subplot layout for row 4
-    % If we have enough sessions, split them evenly; otherwise, use full width for each
-    if n_sessions_present >= 2
-        % Left half for distance heatmap, right half for P_same heatmap
-        left_cols = 1:ceil(n_sessions_present/2);
-        right_cols = (ceil(n_sessions_present/2)+1):n_sessions_present;
-    else
-        % Single session - just one subplot
-        left_cols = 1;
-        right_cols = [];
-    end
-
+    % Create two heatmaps side by side using subplot positioning
     session_labels = cell(1, n_sessions_present);
     for i = 1:n_sessions_present
         session_labels{i} = sprintf('S%d', session_numbers(sessions_present(i)));
     end
 
+    % Calculate positions for the two heatmaps in row 4
+    % Row 4 should span the full width, split into left (distance) and right (p_same)
+    row_4_bottom = 0.05;  % Bottom position for row 4
+    row_4_height = 0.20;  % Height of row 4
+    gap = 0.05;           % Gap between heatmaps
+    margin = 0.05;        % Left/right margins
+
     % Distance Heatmap (left side of row 4)
-    if ~isempty(left_cols)
-        subplot(total_rows, total_cols, (total_rows-1)*total_cols + left_cols);
+    left_width = (1 - 2*margin - gap) / 2;
+    pos_left = [margin, row_4_bottom, left_width, row_4_height];
 
-        imagesc(euclidean_distances);
-        set(gca, 'XTick', 1:n_sessions_present, 'XTickLabel', session_labels);
-        set(gca, 'YTick', 1:n_sessions_present, 'YTickLabel', session_labels);
-        xlabel('Session', 'FontSize', 10, 'FontWeight', 'bold');
-        ylabel('Session', 'FontSize', 10, 'FontWeight', 'bold');
-        title('Distance Between Sessions (μm)', 'FontSize', 11, 'FontWeight', 'bold');
+    ax_dist = subplot('Position', pos_left);
 
-        colormap(gca, hot);
-        c = colorbar;
-        c.Label.String = 'Distance (μm)';
-        c.Label.FontSize = 10;
-        caxis([0 5]); % Fixed colorbar range 0-5 μm
+    imagesc(euclidean_distances);
+    set(gca, 'XTick', 1:n_sessions_present, 'XTickLabel', session_labels);
+    set(gca, 'YTick', 1:n_sessions_present, 'YTickLabel', session_labels);
+    xlabel('Session', 'FontSize', 10, 'FontWeight', 'bold');
+    ylabel('Session', 'FontSize', 10, 'FontWeight', 'bold');
+    title('Distance Between Sessions (μm)', 'FontSize', 11, 'FontWeight', 'bold');
 
-        % Add text annotations
-        for i = 1:n_sessions_present
-            for j = 1:n_sessions_present
-                if ~isnan(euclidean_distances(i, j))
-                    if euclidean_distances(i, j) < 2.5
-                        text_color = 'white';
-                    else
-                        text_color = 'black';
-                    end
-                    text(j, i, sprintf('%.1f', euclidean_distances(i, j)), ...
-                         'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
-                         'FontSize', 8, 'Color', text_color, 'FontWeight', 'bold');
+    colormap(gca, hot);
+    c = colorbar;
+    c.Label.String = 'Distance (μm)';
+    c.Label.FontSize = 10;
+    caxis([0 5]); % Fixed colorbar range 0-5 μm
+
+    % Add text annotations
+    for i = 1:n_sessions_present
+        for j = 1:n_sessions_present
+            if ~isnan(euclidean_distances(i, j))
+                if euclidean_distances(i, j) < 2.5
+                    text_color = 'white';
                 else
-                    text(j, i, 'N/A', ...
-                         'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
-                         'FontSize', 7, 'Color', 'black');
+                    text_color = 'black';
                 end
+                text(j, i, sprintf('%.1f', euclidean_distances(i, j)), ...
+                     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+                     'FontSize', 8, 'Color', text_color, 'FontWeight', 'bold');
+            else
+                text(j, i, 'N/A', ...
+                     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
+                     'FontSize', 7, 'Color', 'black');
             end
         end
-
-        axis square;
     end
 
+    axis square;
+
     % P_same Heatmap (right side of row 4)
-    if has_p_same && ~isempty(right_cols)
+    if has_p_same
         try
             p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index_map, ...
                                                     p_same_registered_pairs, sessions_present);
 
-            subplot(total_rows, total_cols, (total_rows-1)*total_cols + right_cols);
+            % Right heatmap position
+            pos_right = [margin + left_width + gap, row_4_bottom, left_width, row_4_height];
+            ax_psame = subplot('Position', pos_right);
 
             imagesc(p_same_matrix);
             set(gca, 'XTick', 1:n_sessions_present, 'XTickLabel', session_labels);
@@ -2544,37 +2559,62 @@ function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index
 end
 
 function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory, ...
-                                   figures_visibility, session_numbers, subject_id)
-% PLOT_SESSION_VENN_DIAGRAM - Proper Venn-style diagram showing overlaps
-    
+                                   figures_visibility, session_numbers, subject_id, nonzero_counts)
+% PLOT_SESSION_VENN_DIAGRAM - Venn diagram with histogram showing cell occurrences
+
     num_sessions = size(optimal_cell_to_index_map, 2);
-    
+
     if nargin < 4
         session_numbers = 1:num_sessions;
     end
-    
+
     if nargin < 5
         subject_id = [];  % Default to no subject ID
     end
-    
+
+    if nargin < 6
+        % Calculate nonzero_counts if not provided
+        nonzero_counts = sum(optimal_cell_to_index_map > 0, 2);
+    end
+
     % Create binary presence matrix (1 if cell present, 0 if not)
     presence_matrix = optimal_cell_to_index_map > 0;
-    
-    % Create figure
-    fig = figure('Position', [200, 200, 1000, 700], 'Visible', figures_visibility);
-    
+
+    % Create figure with more height for histogram
+    fig = figure('Position', [200, 200, 1000, 900], 'Visible', figures_visibility);
+
+    % Create two subplot rows: Venn diagram on top, histogram on bottom
+    subplot(2, 1, 1);  % Top subplot for Venn diagram
+
     if num_sessions == 2
         % Two-circle Venn diagram
         plot_2_way_venn(presence_matrix, session_numbers);
-        
+
     elseif num_sessions == 3
         % Three-circle Venn diagram
         plot_3_way_venn(presence_matrix, session_numbers);
-        
+
     else
         % For 4+ sessions, use UpSet plot style (better than Venn)
         plot_upset_style(presence_matrix, session_numbers);
     end
+
+    % Bottom subplot for histogram
+    subplot(2, 1, 2);
+    histogram(nonzero_counts, 'BinMethod', 'integers', 'FaceColor', [0.3 0.5 0.8], 'EdgeColor', 'k');
+    xlabel('Number of Sessions', 'FontSize', 12, 'FontWeight', 'bold');
+    ylabel('Number of Cells', 'FontSize', 12, 'FontWeight', 'bold');
+    title('Distribution of Cell Occurrences Across Sessions', 'FontSize', 13, 'FontWeight', 'bold');
+    grid on;
+
+    % Add statistics text
+    hold on;
+    max_val = max(nonzero_counts);
+    ylims = ylim;
+    text(0.7*max_val, 0.85*ylims(2), sprintf('Total cells: %d\nCells in all sessions: %d\nCells in ≥3 sessions: %d', ...
+         length(nonzero_counts), sum(nonzero_counts == num_sessions), sum(nonzero_counts >= 3)), ...
+         'FontSize', 10, 'FontWeight', 'bold', 'BackgroundColor', 'white', 'EdgeColor', 'black');
+    hold off;
     
     % Add title with subject ID
     if ~isempty(subject_id)
