@@ -2710,8 +2710,20 @@ function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory,
     % Create figure with more height for histogram
     fig = figure('Position', [200, 200, 1000, 900], 'Visible', figures_visibility);
 
-    % Create two subplot rows: Venn diagram on top, histogram on bottom
-    subplot(2, 1, 1);  % Top subplot for Venn diagram
+    % Create two subplot rows with position-based layout to avoid overlap
+    % Top subplot gets 60% of height, bottom gets 25%, with 5% gap
+    if num_sessions >= 4
+        % For UpSet plots (4+ sessions), give even more space to top plot
+        pos_top = [0.10, 0.38, 0.85, 0.57];  % [left, bottom, width, height]
+        pos_bottom = [0.10, 0.05, 0.85, 0.25];
+    else
+        % For Venn diagrams (2-3 sessions), standard spacing works fine
+        pos_top = [0.10, 0.35, 0.85, 0.60];
+        pos_bottom = [0.10, 0.05, 0.85, 0.25];
+    end
+
+    % Top subplot for Venn/UpSet diagram
+    subplot('Position', pos_top);
 
     if num_sessions == 2
         % Two-circle Venn diagram
@@ -2727,7 +2739,7 @@ function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory,
     end
 
     % Bottom subplot for histogram
-    subplot(2, 1, 2);
+    subplot('Position', pos_bottom);
     histogram(nonzero_counts, 'BinMethod', 'integers', 'FaceColor', [0.3 0.5 0.8], 'EdgeColor', 'k');
     xlabel('Number of Sessions', 'FontSize', 12, 'FontWeight', 'bold');
     ylabel('Number of Cells', 'FontSize', 12, 'FontWeight', 'bold');
