@@ -2707,23 +2707,8 @@ function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory,
     % Create binary presence matrix (1 if cell present, 0 if not)
     presence_matrix = optimal_cell_to_index_map > 0;
 
-    % Create figure with more height for histogram
-    fig = figure('Position', [200, 200, 1000, 900], 'Visible', figures_visibility);
-
-    % Create two subplot rows with position-based layout to avoid overlap
-    % Top subplot gets 60% of height, bottom gets 25%, with 5% gap
-    if num_sessions >= 4
-        % For UpSet plots (4+ sessions), give even more space to top plot
-        pos_top = [0.10, 0.38, 0.85, 0.57];  % [left, bottom, width, height]
-        pos_bottom = [0.10, 0.05, 0.85, 0.25];
-    else
-        % For Venn diagrams (2-3 sessions), standard spacing works fine
-        pos_top = [0.10, 0.35, 0.85, 0.60];
-        pos_bottom = [0.10, 0.05, 0.85, 0.25];
-    end
-
-    % Top subplot for Venn/UpSet diagram
-    subplot('Position', pos_top);
+    % Create figure for Venn/UpSet diagram
+    fig = figure('Position', [200, 200, 1000, 800], 'Visible', figures_visibility);
 
     if num_sessions == 2
         % Two-circle Venn diagram
@@ -2737,23 +2722,6 @@ function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory,
         % For 4+ sessions, use UpSet plot style (better than Venn)
         plot_upset_style(presence_matrix, session_numbers);
     end
-
-    % Bottom subplot for histogram
-    subplot('Position', pos_bottom);
-    histogram(nonzero_counts, 'BinMethod', 'integers', 'FaceColor', [0.3 0.5 0.8], 'EdgeColor', 'k');
-    xlabel('Number of Sessions', 'FontSize', 12, 'FontWeight', 'bold');
-    ylabel('Number of Cells', 'FontSize', 12, 'FontWeight', 'bold');
-    title('Distribution of Cell Occurrences Across Sessions', 'FontSize', 13, 'FontWeight', 'bold');
-    grid on;
-
-    % Add statistics text
-    hold on;
-    max_val = max(nonzero_counts);
-    ylims = ylim;
-    text(0.7*max_val, 0.85*ylims(2), sprintf('Total cells: %d\nCells in all sessions: %d\nCells in ≥3 sessions: %d', ...
-         length(nonzero_counts), sum(nonzero_counts == num_sessions), sum(nonzero_counts >= 3)), ...
-         'FontSize', 10, 'FontWeight', 'bold', 'BackgroundColor', 'white', 'EdgeColor', 'black');
-    hold off;
     
     % Add title with subject ID
     if ~isempty(subject_id)
