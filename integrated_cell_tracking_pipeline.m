@@ -2173,7 +2173,8 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
     zoom_6x = 25;  % 6x zoom radius (pixels)
 
     % Calculate figure size (4 rows: FOV, 3x zoom, 6x zoom, heatmaps)
-    fig_width = 250*n_sessions_present;
+    % Set minimum width for better presentation with 2 sessions
+    fig_width = max(800, 250*n_sessions_present);
     fig_height = 1200; % Increased height for 4 rows
 
     fig_name = sprintf('Cell_%d_Zoomed_Comparison', cell_idx);
@@ -2659,25 +2660,32 @@ function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index
 
     n_sessions_present = length(sessions_present);
     p_same_matrix = NaN(n_sessions_present, n_sessions_present);
-    
+
     for i = 1:n_sessions_present
         p_same_matrix(i, i) = 1;
     end
-    
+
+    % Check if cell_idx is within bounds of p_same_registered_pairs
+    if isempty(p_same_registered_pairs) || cell_idx > size(p_same_registered_pairs, 1)
+        warning('Cell %d is out of bounds for p_same_registered_pairs (size: %d x %d)', ...
+                cell_idx, size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        return;
+    end
+
     num_sessions_total = size(optimal_cell_to_index_map, 2);
-    
+
     pair_idx = 0;
     for sess_i = 1:num_sessions_total-1
         for sess_j = sess_i+1:num_sessions_total
             pair_idx = pair_idx + 1;
-            
+
             idx_i = find(sessions_present == sess_i, 1);
             idx_j = find(sessions_present == sess_j, 1);
-            
+
             if ~isempty(idx_i) && ~isempty(idx_j)
                 if pair_idx <= size(p_same_registered_pairs, 2)
                     p_val = p_same_registered_pairs(cell_idx, pair_idx);
-                    
+
                     if ~isnan(p_val) && p_val >= 0
                         p_same_matrix(idx_i, idx_j) = p_val;
                         p_same_matrix(idx_j, idx_i) = p_val;
