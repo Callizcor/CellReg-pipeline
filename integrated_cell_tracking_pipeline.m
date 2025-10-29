@@ -2007,8 +2007,10 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
 
     if nargin < 11
         microns_per_pixel = 1.0; % Default pixel size
+        warning('plot_zoomed_cell_comparison:MissingParameter', ...
+                'microns_per_pixel parameter not provided. Using default value of 1.0 (assuming 1 pixel = 1 micron). Cell areas may be inaccurate.');
     end
-    
+
     cell_indices = optimal_cell_to_index_map(cell_idx, :);
     sessions_present = find(cell_indices > 0);
     n_sessions_present = length(sessions_present);
@@ -2077,6 +2079,7 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
         % FIXED: Get actual ROI number from database
         actual_roi_number = cell_local_idx; % Default fallback
         cell_prob = NaN; % Default probability
+        using_fallback_roi = true; % Flag to track if using fallback
 
         if ~isempty(roi_mappings) && sess <= length(roi_mappings)
             % cell_local_idx is the filtered index (position in the kept array)
@@ -2091,6 +2094,7 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
             if ~isempty(original_position)
                 % Now get the actual ROI number from that position
                 actual_roi_number = original_roi_numbers(original_position);
+                using_fallback_roi = false; % Successfully got real ROI number
 
                 % Get IsCellProbability from stored probabilities
                 if isfield(roi_mappings(sess), 'probabilities') && ...
@@ -2172,9 +2176,14 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
             plot([cent_x, cent_x], [cent_y - cross_size, cent_y + cross_size], ...
                  'r-', 'LineWidth', 2);
             
-            % Show actual ROI number from database
-            title(sprintf('S%d - Full FOV (ROI #%d)', actual_session_num, actual_roi_number), ...
-                  'FontSize', 10, 'FontWeight', 'bold');
+            % Show actual ROI number from database (with fallback warning if needed)
+            if using_fallback_roi
+                title(sprintf('S%d - Full FOV (ROI #%d*)\\fontsize{8}\\color{red}*CellReg index', actual_session_num, actual_roi_number), ...
+                      'FontSize', 10, 'FontWeight', 'bold', 'Interpreter', 'tex');
+            else
+                title(sprintf('S%d - Full FOV (ROI #%d)', actual_session_num, actual_roi_number), ...
+                      'FontSize', 10, 'FontWeight', 'bold');
+            end
             axis on;
             hold off;
             
@@ -2250,9 +2259,14 @@ function plot_zoomed_cell_comparison(cell_idx, optimal_cell_to_index_map, ...
                      'EdgeColor', 'yellow', 'LineWidth', 1, 'Margin', 2);
             end
 
-            % Show actual ROI number from database
-            title(sprintf('S%d - 6x Zoom (ROI #%d)', actual_session_num, actual_roi_number), ...
-                  'FontSize', 10, 'FontWeight', 'bold');
+            % Show actual ROI number from database (with fallback warning if needed)
+            if using_fallback_roi
+                title(sprintf('S%d - 6x Zoom (ROI #%d*)\\fontsize{8}\\color{red}*CellReg index', actual_session_num, actual_roi_number), ...
+                      'FontSize', 10, 'FontWeight', 'bold', 'Interpreter', 'tex');
+            else
+                title(sprintf('S%d - 6x Zoom (ROI #%d)', actual_session_num, actual_roi_number), ...
+                      'FontSize', 10, 'FontWeight', 'bold');
+            end
             axis on;
             hold off;
             
