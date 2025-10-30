@@ -844,7 +844,7 @@ function roi_lookup = build_roi_lookup(optimal_cell_to_index_map, roi_mappings, 
                 cellreg_id = find(optimal_cell_to_index_map(:, sess_idx) == filtered_idx, 1);
                 if ~isempty(cellreg_id)
                     CellReg_ID_array(current_row) = cellreg_id;
-                    if has_p_same && cellreg_id <= size(p_same_registered_pairs, 1)
+                    if has_p_same && cellreg_id <= numel(p_same_registered_pairs)
                         P_same_matrix_cell{current_row} = extract_p_same_matrix_from_pairs(...
                             cellreg_id, p_same_registered_pairs, n_sessions);
                     end
@@ -1190,35 +1190,22 @@ function create_roi_to_cellreg_lookup_tables(optimal_cell_to_index_map, roi_mapp
 end
 
 function p_same_matrix = extract_p_same_matrix_from_pairs(cell_idx, p_same_registered_pairs, n_sessions)
-% EXTRACT_P_SAME_MATRIX_FROM_PAIRS - Convert p_same_registered_pairs vector to matrix
-% 
-% p_same_registered_pairs is [n_cells x n_pairs] where n_pairs = n_sessions*(n_sessions-1)/2
-% Each row contains pairwise probabilities in order: (1,2), (1,3), ..., (1,n), (2,3), ..., (n-1,n)
+% EXTRACT_P_SAME_MATRIX_FROM_PAIRS - Extract P(same) matrix for a specific cell
+%
+% p_same_registered_pairs is a cell array [n_cells x 1] where each element is a
+% [n_sessions x n_sessions] symmetric probability matrix
 
-    % Initialize symmetric matrix with diagonal = 1
-    p_same_matrix = NaN(n_sessions, n_sessions);
-    for i = 1:n_sessions
-        p_same_matrix(i, i) = 1;  % Same session = P(same) = 1
-    end
-    
-    % Fill in pairwise values
-    pair_vector = p_same_registered_pairs(cell_idx, :);
-    pair_idx = 0;
-    
-    for sess_i = 1:n_sessions-1
-        for sess_j = sess_i+1:n_sessions
-            pair_idx = pair_idx + 1;
-            
-            if pair_idx <= length(pair_vector)
-                p_val = pair_vector(pair_idx);
-                
-                % Set symmetric values
-                if ~isnan(p_val)
-                    p_same_matrix(sess_i, sess_j) = p_val;
-                    p_same_matrix(sess_j, sess_i) = p_val;
-                end
-            end
+    if iscell(p_same_registered_pairs)
+        % Direct extraction from cell array
+        if cell_idx <= numel(p_same_registered_pairs)
+            p_same_matrix = p_same_registered_pairs{cell_idx};
+        else
+            % Return NaN matrix if index out of bounds
+            p_same_matrix = NaN(n_sessions, n_sessions);
         end
+    else
+        % Fallback: return NaN matrix if not cell array
+        p_same_matrix = NaN(n_sessions, n_sessions);
     end
 end
 %% ========================================================================
@@ -2005,118 +1992,27 @@ function run_cellreg_pipeline(file_names, params)
                              centroid_locations_corrected, registration_approach, transform_data);
         end
 
-        % DEBUG: Check p_same data right after cluster_cells returns
-        fprintf('  DEBUG: p_same_registered_pairs from cluster_cells:\n');
-        fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-        fprintf('    Class: %s\n', class(p_same_registered_pairs));
-
-        % FIX: Check if dimensions are swapped (should be n_cells x n_pairs, not n_pairs x n_cells)
-        n_cells = size(optimal_cell_to_index_map, 1);
-        expected_n_pairs = number_of_sessions * (number_of_sessions - 1) / 2;
-
-        % CRITICAL: Keep original cell array for plot_cell_scores (CellReg function expects it)
-        p_same_registered_pairs_original = p_same_registered_pairs;
-
-        if iscell(p_same_registered_pairs)
-            fprintf('    Type is CELL ARRAY - converting to correct format\n');
-            fprintf('    Cell array size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-
-            % Check structure of first element
-            if ~isempty(p_same_registered_pairs)
-                first_elem = p_same_registered_pairs{1};
-                fprintf('    First element size: [%d x %d], class: %s\n', ...
-                        size(first_elem, 1), size(first_elem, 2), class(first_elem));
-
-                % Check if each element is an n_sessions x n_sessions matrix
-                if size(first_elem, 1) == number_of_sessions && size(first_elem, 2) == number_of_sessions
-                    fprintf('    Detected format: Each cell contains [%d x %d] P(same) matrix\n', ...
-                            number_of_sessions, number_of_sessions);
-                    fprintf('    Converting to [n_cells x n_pairs] format by extracting upper triangle...\n');
-
-                    % Extract pairwise probabilities from each matrix
-                    % For n sessions, we have n*(n-1)/2 pairs
-                    n_cell_elements = numel(p_same_registered_pairs);
-                    p_same_numeric = zeros(n_cell_elements, expected_n_pairs);
-
-                    for cell_i = 1:n_cell_elements
-                        matrix = p_same_registered_pairs{cell_i};
-
-                        % Extract upper triangle (pairwise values)
-                        pair_idx = 0;
-                        for sess_i = 1:number_of_sessions-1
-                            for sess_j = sess_i+1:number_of_sessions
-                                pair_idx = pair_idx + 1;
-                                p_same_numeric(cell_i, pair_idx) = matrix(sess_i, sess_j);
-                            end
-                        end
-                    end
-
-                    % Transpose if needed to get [n_cells x n_pairs]
-                    if size(p_same_numeric, 1) ~= n_cells && size(p_same_numeric, 2) == n_cells
-                        fprintf('    Transposing from [%d x %d] to [%d x %d]\n', ...
-                                size(p_same_numeric, 1), size(p_same_numeric, 2), ...
-                                size(p_same_numeric, 2), size(p_same_numeric, 1));
-                        p_same_numeric = p_same_numeric';
-                    end
-
-                    p_same_registered_pairs = p_same_numeric;
-                    fprintf('    Successfully converted to numeric [%d x %d]\n', ...
-                            size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-
-                else
-                    % Try generic cell2mat approach
-                    fprintf('    Attempting generic cell2mat conversion...\n');
-                    try
-                        p_same_numeric = cell2mat(p_same_registered_pairs);
-                        fprintf('    cell2mat produced: [%d x %d]\n', ...
-                                size(p_same_numeric, 1), size(p_same_numeric, 2));
-
-                        % Try to reshape to correct dimensions
-                        if numel(p_same_numeric) == n_cells * expected_n_pairs
-                            p_same_numeric = reshape(p_same_numeric, expected_n_pairs, n_cells)';
-                            fprintf('    Reshaped to [%d x %d]\n', ...
-                                    size(p_same_numeric, 1), size(p_same_numeric, 2));
-                        end
-
-                        p_same_registered_pairs = p_same_numeric;
-                    catch e
-                        fprintf('    ERROR: cell2mat failed: %s\n', e.message);
-                        fprintf('    Cannot convert - will use empty array\n');
-                        p_same_registered_pairs = [];
-                    end
+        % Keep p_same_registered_pairs as cell array with full [n_sessions x n_sessions] matrices
+        fprintf('  P_same data from cluster_cells:\n');
+        fprintf('    Format: Cell array [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        if iscell(p_same_registered_pairs) && ~isempty(p_same_registered_pairs)
+            first_elem = p_same_registered_pairs{1};
+            fprintf('    Each cell contains: [%d x %d] probability matrix\n', ...
+                    size(first_elem, 1), size(first_elem, 2));
+            fprintf('    Sample P(same) values from first cell:\n');
+            fprintf('      Matrix:\n');
+            for i = 1:min(3, size(first_elem, 1))
+                fprintf('        ');
+                for j = 1:min(3, size(first_elem, 2))
+                    fprintf('%.4f  ', first_elem(i,j));
                 end
+                fprintf('\n');
             end
         end
 
-        % Check if dimensions match expected
-        fprintf('    Expected dimensions: [%d cells x %d pairs]\n', n_cells, expected_n_pairs);
-        if isnumeric(p_same_registered_pairs) && ...
-           (size(p_same_registered_pairs, 1) ~= n_cells || size(p_same_registered_pairs, 2) ~= expected_n_pairs)
-            fprintf('    WARNING: Dimensions do NOT match expected!\n');
-            fprintf('    Current dimensions: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-
-            % Check if transposed
-            if size(p_same_registered_pairs, 1) == expected_n_pairs && size(p_same_registered_pairs, 2) == n_cells
-                fprintf('    FIX: Data appears to be transposed. Transposing back...\n');
-                p_same_registered_pairs = p_same_registered_pairs';
-                fprintf('    New size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-            end
-        end
-
-        if ~isempty(p_same_registered_pairs) && isnumeric(p_same_registered_pairs)
-            fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
-                    p_same_registered_pairs(1, min(1, end)), ...
-                    p_same_registered_pairs(1, min(2, end)), ...
-                    p_same_registered_pairs(1, min(3, end)));
-            fprintf('    Contains NaN: %s\n', mat2str(any(any(isnan(p_same_registered_pairs)))));
-            fprintf('    Min/Max values: [%.4f, %.4f]\n', min(p_same_registered_pairs(:)), max(p_same_registered_pairs(:)));
-        elseif isempty(p_same_registered_pairs)
-            fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
-        end
-
-        % Use original cell array for plot_cell_scores (it expects that format)
+        % Use cell array for plot_cell_scores (it expects this format)
         plot_cell_scores(cell_scores_positive, cell_scores_negative, cell_scores_exclusive, ...
-                        cell_scores, p_same_registered_pairs_original, figures_directory, figures_visibility);
+                        cell_scores, p_same_registered_pairs, figures_directory, figures_visibility);
     else
         if strcmp(model_type, 'Spatial correlation')
             [optimal_cell_to_index_map, registered_cells_centroids] = ...
@@ -2231,21 +2127,11 @@ function run_cellreg_pipeline(file_names, params)
         cell_registered_struct.true_negative_scores = cell_scores_negative';
         cell_registered_struct.exclusivity_scores = cell_scores_exclusive';
 
-        % DEBUG: Check p_same before saving to struct
-        fprintf('  DEBUG: Before saving to struct:\n');
-        if iscell(p_same_registered_pairs)
-            fprintf('    WARNING: p_same_registered_pairs is a CELL ARRAY!\n');
-            fprintf('    This is unexpected - cluster_cells should return a numeric array\n');
-            fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-        else
-            fprintf('    p_same_registered_pairs size: [%d x %d]\n', ...
-                    size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-            fprintf('    Class: %s\n', class(p_same_registered_pairs));
-        end
-
-        % CRITICAL: DO NOT TRANSPOSE - cluster_cells already returns [n_cells x n_pairs]
-        % The extract_p_same_matrix_from_pairs function expects [n_cells x n_pairs]
+        % Save p_same as cell array with full [n_sessions x n_sessions] matrices
         cell_registered_struct.p_same_registered_pairs = p_same_registered_pairs;
+        fprintf('  Saved p_same_registered_pairs: Cell array [%d x %d] with [%d x %d] matrices\n', ...
+                size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2), ...
+                number_of_sessions, number_of_sessions);
     end
     cell_registered_struct.is_cell_in_overlapping_FOV = is_in_overlapping_FOV';
     cell_registered_struct.registered_cells_centroids = registered_cells_centroids';
@@ -2374,100 +2260,6 @@ function run_cellreg_pipeline(file_names, params)
         fprintf('No cells found appearing in all sessions. Skipping zoomed comparison generation.\n');
     end
 
-    % DEBUG: Create standalone P_same heatmap figures for testing
-    if has_p_same && ~isempty(cells_multi_session)
-        fprintf('\n=== DEBUG: Creating standalone P_same heatmap figures ===\n');
-        fprintf('  p_same_registered_pairs dimensions: %d x %d\n', ...
-                size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-        fprintf('  optimal_cell_to_index_map dimensions: %d x %d\n', ...
-                size(optimal_cell_to_index_map, 1), size(optimal_cell_to_index_map, 2));
-        fprintf('  Number of cells in cells_multi_session: %d\n', length(cells_multi_session));
-        fprintf('  First few cell indices: [%s]\n', num2str(cells_multi_session(1:min(5,length(cells_multi_session)))));
-
-        debug_dir = fullfile(figures_directory, 'Debug_PSame_Heatmaps');
-        if ~exist(debug_dir, 'dir')
-            mkdir(debug_dir);
-        end
-
-        % Test with first 5 cells (or fewer if not enough cells)
-        n_debug_cells = min(5, length(cells_multi_session));
-        fprintf('  Testing P_same heatmaps for %d cells...\n', n_debug_cells);
-
-        for i = 1:n_debug_cells
-            cell_idx = cells_multi_session(i);
-            cell_indices = optimal_cell_to_index_map(cell_idx, :);
-            sessions_present = find(cell_indices > 0);
-            n_sessions_present = length(sessions_present);
-
-            if n_sessions_present >= 2
-                try
-                    % Extract P_same matrix
-                    p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index_map, ...
-                                                           p_same_registered_pairs, sessions_present);
-
-                    % Create session labels
-                    session_labels = cell(1, n_sessions_present);
-                    for s = 1:n_sessions_present
-                        session_labels{s} = sprintf('S%d', session_numbers(sessions_present(s)));
-                    end
-
-                    % Create standalone figure
-                    fig = figure('Position', [200, 200, 600, 500], 'Visible', figures_visibility);
-
-                    imagesc(p_same_matrix);
-                    set(gca, 'XTick', 1:n_sessions_present, 'XTickLabel', session_labels);
-                    set(gca, 'YTick', 1:n_sessions_present, 'YTickLabel', session_labels);
-                    xlabel('Session', 'FontSize', 12, 'FontWeight', 'bold');
-                    ylabel('Session', 'FontSize', 12, 'FontWeight', 'bold');
-                    title(sprintf('Cell %d - P(Same Cell) Matrix', cell_idx), ...
-                          'FontSize', 14, 'FontWeight', 'bold');
-
-                    colormap(jet);
-                    c = colorbar;
-                    c.Label.String = 'Probability';
-                    c.Label.FontSize = 12;
-                    caxis([0 1]);
-
-                    % Add text annotations
-                    for ii = 1:n_sessions_present
-                        for jj = 1:n_sessions_present
-                            if ~isnan(p_same_matrix(ii, jj))
-                                if p_same_matrix(ii, jj) > 0.5
-                                    text_color = 'white';
-                                else
-                                    text_color = 'black';
-                                end
-                                text(jj, ii, sprintf('%.3f', p_same_matrix(ii, jj)), ...
-                                     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
-                                     'FontSize', 10, 'Color', text_color, 'FontWeight', 'bold');
-                            else
-                                text(jj, ii, 'N/A', ...
-                                     'HorizontalAlignment', 'center', 'VerticalAlignment', 'middle', ...
-                                     'FontSize', 8, 'Color', 'black');
-                            end
-                        end
-                    end
-
-                    axis square;
-
-                    % Save figure
-                    filename = sprintf('DEBUG_Cell_%d_PSame_Heatmap.png', cell_idx);
-                    saveas(fig, fullfile(debug_dir, filename));
-                    close(fig);
-
-                    fprintf('    Cell %d: P_same heatmap saved (sessions: [%s])\n', ...
-                            cell_idx, sprintf('%d ', session_numbers(sessions_present)));
-
-                catch ME
-                    fprintf('    Warning: Failed to create P_same heatmap for cell %d: %s\n', ...
-                            cell_idx, ME.message);
-                end
-            end
-        end
-
-        fprintf('  Created debug P_same heatmaps in: %s\n', debug_dir);
-        fprintf('=== END DEBUG ===\n\n');
-    end
 
    % Generate Venn diagram of shared cells
     fprintf('\nGenerating session overlap visualization...\n');
@@ -3181,78 +2973,30 @@ end
 
 function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index_map, ...
                                                  p_same_registered_pairs, sessions_present)
-% EXTRACT_P_SAME_FOR_CELL - Extract P_same values for specific cell
+% EXTRACT_P_SAME_FOR_CELL - Extract P_same values for specific cell, subset to sessions present
+%
+% p_same_registered_pairs is a cell array [n_cells x 1] where each element is a
+% [n_sessions x n_sessions] probability matrix
 
     n_sessions_present = length(sessions_present);
     p_same_matrix = NaN(n_sessions_present, n_sessions_present);
 
-    for i = 1:n_sessions_present
-        p_same_matrix(i, i) = 1;
-    end
-
-    % DEBUG: Check data type
-    if iscell(p_same_registered_pairs)
-        fprintf('      ERROR: p_same_registered_pairs is a CELL ARRAY! Converting to numeric...\n');
-        fprintf('      Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-
-        % Try to convert cell array to numeric matrix
-        try
-            p_same_registered_pairs = cell2mat(p_same_registered_pairs);
-            fprintf('      Successfully converted to [%d x %d] numeric matrix\n', ...
-                    size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-        catch e
-            fprintf('      ERROR: Failed to convert cell array to matrix: %s\n', e.message);
-            warning('Cannot extract P_same for cell %d - data is in cell array format', cell_idx);
-            return;
-        end
-    end
-
-    % Check if cell_idx is within bounds of p_same_registered_pairs
-    if isempty(p_same_registered_pairs) || cell_idx > size(p_same_registered_pairs, 1)
-        warning('Cell %d is out of bounds for p_same_registered_pairs (size: %d x %d)', ...
-                cell_idx, size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+    % Check if data is available and cell_idx is valid
+    if ~iscell(p_same_registered_pairs) || isempty(p_same_registered_pairs)
+        warning('P_same data not available in expected cell array format');
         return;
     end
 
-    num_sessions_total = size(optimal_cell_to_index_map, 2);
-
-    % DEBUG: Show p_same values for this cell
-    p_same_row = p_same_registered_pairs(cell_idx, :);
-    fprintf('      Cell %d p_same row: [', cell_idx);
-    if isnumeric(p_same_row)
-        fprintf('%.3f ', p_same_row(1:min(10, length(p_same_row))));
-        if length(p_same_row) > 10
-            fprintf('... (%d more)', length(p_same_row) - 10);
-        end
-    else
-        fprintf('ERROR: p_same_row is not numeric! Class: %s', class(p_same_row));
-    end
-    fprintf(']\n');
-
-    pair_idx = 0;
-    n_valid_pairs = 0;
-    for sess_i = 1:num_sessions_total-1
-        for sess_j = sess_i+1:num_sessions_total
-            pair_idx = pair_idx + 1;
-
-            idx_i = find(sessions_present == sess_i, 1);
-            idx_j = find(sessions_present == sess_j, 1);
-
-            if ~isempty(idx_i) && ~isempty(idx_j)
-                if pair_idx <= size(p_same_registered_pairs, 2)
-                    p_val = p_same_registered_pairs(cell_idx, pair_idx);
-
-                    if ~isnan(p_val) && p_val >= 0
-                        p_same_matrix(idx_i, idx_j) = p_val;
-                        p_same_matrix(idx_j, idx_i) = p_val;
-                        n_valid_pairs = n_valid_pairs + 1;
-                    end
-                end
-            end
-        end
+    if cell_idx > numel(p_same_registered_pairs)
+        warning('Cell %d is out of bounds for p_same_registered_pairs', cell_idx);
+        return;
     end
 
-    fprintf('      Cell %d: Filled %d valid P_same pairs\n', cell_idx, n_valid_pairs);
+    % Get the full [n_sessions x n_sessions] matrix for this cell
+    full_p_same_matrix = p_same_registered_pairs{cell_idx};
+
+    % Subset to only the sessions where this cell is present
+    p_same_matrix = full_p_same_matrix(sessions_present, sessions_present);
 end
 
 function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory, ...
