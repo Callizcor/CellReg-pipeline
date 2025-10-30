@@ -1804,56 +1804,71 @@ function run_cellreg_pipeline(file_names, params)
         p_same_registered_pairs_original = p_same_registered_pairs;
 
         if iscell(p_same_registered_pairs)
-            fprintf('    ERROR: Type is CELL ARRAY (unexpected!)\n');
+            fprintf('    Type is CELL ARRAY - converting to correct format\n');
             fprintf('    Cell array size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
 
             % Check structure of first element
             if ~isempty(p_same_registered_pairs)
+                first_elem = p_same_registered_pairs{1};
                 fprintf('    First element size: [%d x %d], class: %s\n', ...
-                        size(p_same_registered_pairs{1}, 1), size(p_same_registered_pairs{1}, 2), ...
-                        class(p_same_registered_pairs{1}));
-            end
+                        size(first_elem, 1), size(first_elem, 2), class(first_elem));
 
-            fprintf('    Attempting to convert cell array to numeric matrix...\n');
+                % Check if each element is an n_sessions x n_sessions matrix
+                if size(first_elem, 1) == number_of_sessions && size(first_elem, 2) == number_of_sessions
+                    fprintf('    Detected format: Each cell contains [%d x %d] P(same) matrix\n', ...
+                            number_of_sessions, number_of_sessions);
+                    fprintf('    Converting to [n_cells x n_pairs] format by extracting upper triangle...\n');
 
-            try
-                % Try to convert cell array to matrix
-                p_same_numeric = cell2mat(p_same_registered_pairs);
-                fprintf('    Successfully converted to numeric: [%d x %d]\n', ...
-                        size(p_same_numeric, 1), size(p_same_numeric, 2));
+                    % Extract pairwise probabilities from each matrix
+                    % For n sessions, we have n*(n-1)/2 pairs
+                    n_cell_elements = numel(p_same_registered_pairs);
+                    p_same_numeric = zeros(n_cell_elements, expected_n_pairs);
 
-                % If we got [n_pairs x (n_cells * something)], we need to reshape
-                if size(p_same_numeric, 1) == expected_n_pairs
-                    % Data is arranged as [n_pairs x ...], need to reshape to [n_cells x n_pairs]
-                    total_elements = numel(p_same_numeric);
-                    if total_elements == n_cells * expected_n_pairs
-                        % Reshape: [n_pairs x n_cells*?] -> [n_cells x n_pairs]
-                        fprintf('    Reshaping from [%d x %d] to [%d x %d]...\n', ...
-                                size(p_same_numeric, 1), size(p_same_numeric, 2), n_cells, expected_n_pairs);
-                        p_same_numeric = reshape(p_same_numeric', n_cells, expected_n_pairs);
-                        fprintf('    Successfully reshaped to [%d x %d]\n', ...
-                                size(p_same_numeric, 1), size(p_same_numeric, 2));
-                    end
-                end
+                    for cell_i = 1:n_cell_elements
+                        matrix = p_same_registered_pairs{cell_i};
 
-                p_same_registered_pairs = p_same_numeric;
-
-            catch e
-                fprintf('    ERROR: Failed to convert: %s\n', e.message);
-                % Try transposing then converting
-                try
-                    p_same_numeric = cell2mat(p_same_registered_pairs');
-                    fprintf('    Successfully converted after transpose: [%d x %d]\n', ...
-                            size(p_same_numeric, 1), size(p_same_numeric, 2));
-                    p_same_registered_pairs = p_same_numeric;
-                catch e2
-                    fprintf('    ERROR: Transpose also failed: %s\n', e2.message);
-                    fprintf('    Sample of first few elements:\n');
-                    if ~isempty(p_same_registered_pairs)
-                        for i = 1:min(3, numel(p_same_registered_pairs))
-                            fprintf('      Element %d: ', i);
-                            disp(p_same_registered_pairs{i});
+                        % Extract upper triangle (pairwise values)
+                        pair_idx = 0;
+                        for sess_i = 1:number_of_sessions-1
+                            for sess_j = sess_i+1:number_of_sessions
+                                pair_idx = pair_idx + 1;
+                                p_same_numeric(cell_i, pair_idx) = matrix(sess_i, sess_j);
+                            end
                         end
+                    end
+
+                    % Transpose if needed to get [n_cells x n_pairs]
+                    if size(p_same_numeric, 1) ~= n_cells && size(p_same_numeric, 2) == n_cells
+                        fprintf('    Transposing from [%d x %d] to [%d x %d]\n', ...
+                                size(p_same_numeric, 1), size(p_same_numeric, 2), ...
+                                size(p_same_numeric, 2), size(p_same_numeric, 1));
+                        p_same_numeric = p_same_numeric';
+                    end
+
+                    p_same_registered_pairs = p_same_numeric;
+                    fprintf('    Successfully converted to numeric [%d x %d]\n', ...
+                            size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+
+                else
+                    % Try generic cell2mat approach
+                    fprintf('    Attempting generic cell2mat conversion...\n');
+                    try
+                        p_same_numeric = cell2mat(p_same_registered_pairs);
+                        fprintf('    cell2mat produced: [%d x %d]\n', ...
+                                size(p_same_numeric, 1), size(p_same_numeric, 2));
+
+                        % Try to reshape to correct dimensions
+                        if numel(p_same_numeric) == n_cells * expected_n_pairs
+                            p_same_numeric = reshape(p_same_numeric, expected_n_pairs, n_cells)';
+                            fprintf('    Reshaped to [%d x %d]\n', ...
+                                    size(p_same_numeric, 1), size(p_same_numeric, 2));
+                        end
+
+                        p_same_registered_pairs = p_same_numeric;
+                    catch e
+                        fprintf('    ERROR: cell2mat failed: %s\n', e.message);
+                        fprintf('    Cannot convert - will use empty array\n');
+                        p_same_registered_pairs = [];
                     end
                 end
             end
