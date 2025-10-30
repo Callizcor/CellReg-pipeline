@@ -161,7 +161,7 @@ function params = collect_pipeline_parameters()
     uicontrol('Style', 'text', 'Position', [x_label, y_pos, 200, 20], ...
               'String', 'Use parallel processing:', 'HorizontalAlignment', 'left');
     h_parallel = uicontrol('Style', 'popupmenu', 'Position', [x_input, y_pos, 150, 22], ...
-                           'String', {'No', 'Yes'}, 'Value', 1);
+                           'String', {'No', 'Yes'}, 'Value', 2);
     y_pos = y_pos - row_height;
 
     % Figures visibility
@@ -1338,9 +1338,12 @@ function run_cellreg_pipeline(file_names, params)
     else
         [spatial_footprints, ~] = load_multiple_sessions(file_names);
     end
-    
+
+    % Suppress diary during projection calculations to avoid session-by-session logging
+    diary off;
     [footprints_projections] = compute_footprints_projections(spatial_footprints);
     plot_all_sessions_projections(footprints_projections, figures_directory, figures_visibility);
+    diary on;
     fprintf('Done\n');
     clear footprints_projections
     
@@ -1881,17 +1884,6 @@ function run_cellreg_pipeline(file_names, params)
     fprintf('%d cells were found\n', size(optimal_cell_to_index_map, 1));
     fprintf('Done\n');
 
-    % Plot histogram
-    fig = figure;
-    histogram(nonzero_counts);
-    xlabel('Number of sessions');
-    ylabel('Number of cells');
-    title(sprintf('Histogram of occurrences per cell (threshold=%.2f, resolution=%.2f, max distance=%.2f)', ...
-                  p_same_threshold, microns_per_pixel, maximal_distance));
-    saveas(fig, fullfile(results_directory, sprintf('Histogram_threshold%.2f_resolution%.2f_maxdist%.2f.png', ...
-                                                    p_same_threshold, microns_per_pixel, maximal_distance)));
-    close(fig);
-    
     % FIX: Generate zoomed contour comparison with session numbers
     % Load enhanced mean images for zoomed comparisons
     fprintf('\n  Loading enhanced mean images for zoomed visualizations...\n');
@@ -1976,6 +1968,12 @@ function run_cellreg_pipeline(file_names, params)
     % DEBUG: Create standalone P_same heatmap figures for testing
     if has_p_same && ~isempty(cells_multi_session)
         fprintf('\n=== DEBUG: Creating standalone P_same heatmap figures ===\n');
+        fprintf('  p_same_registered_pairs dimensions: %d x %d\n', ...
+                size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        fprintf('  optimal_cell_to_index_map dimensions: %d x %d\n', ...
+                size(optimal_cell_to_index_map, 1), size(optimal_cell_to_index_map, 2));
+        fprintf('  Number of cells in cells_multi_session: %d\n', length(cells_multi_session));
+        fprintf('  First few cell indices: [%s]\n', num2str(cells_multi_session(1:min(5,length(cells_multi_session)))));
 
         debug_dir = fullfile(figures_directory, 'Debug_PSame_Heatmaps');
         if ~exist(debug_dir, 'dir')
