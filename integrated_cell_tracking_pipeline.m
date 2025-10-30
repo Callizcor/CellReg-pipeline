@@ -682,7 +682,221 @@ function footprint = create_footprints_from_tensor(cell_tensor)
 end
 
 %% ========================================================================
-%% EXPANDED REGISTRATION TABLE CREATION - NEW FUNCTION
+%% UNIFIED RESULTS STRUCTURE CREATION
+%% ========================================================================
+
+function CellReg_Results = create_unified_results_structure(cell_registered_struct, optimal_cell_to_index_map, roi_mappings, session_numbers, subject_id, results_directory)
+% CREATE_UNIFIED_RESULTS_STRUCTURE - Create comprehensive unified results structure
+%
+% Combines all registration data into a single comprehensive structure:
+% - Core CellReg registration data
+% - Expanded table with ALL cells (including filtered)
+% - ROI-to-CellReg lookup table
+% - Metadata and pipeline info
+
+    fprintf('  Building comprehensive data structure...\n');
+
+    CellReg_Results = struct();
+    n_sessions = length(session_numbers);
+
+    %% SECTION 1: CORE REGISTRATION DATA (from cell_registered_struct)
+    fprintf('    - Adding core registration data\n');
+    CellReg_Results.registration = cell_registered_struct;
+
+    %% SECTION 2: EXTENDED TABLE WITH ALL CELLS (from cell_registered_expanded)
+    fprintf('    - Adding extended table with all cells\n');
+    CellReg_Results.all_cells = build_expanded_table(optimal_cell_to_index_map, roi_mappings, session_numbers);
+
+    %% SECTION 3: ROI LOOKUP TABLE (from ROI_to_CellReg_Lookup)
+    fprintf('    - Adding ROI lookup table\n');
+    CellReg_Results.roi_lookup = build_roi_lookup(optimal_cell_to_index_map, roi_mappings, ...
+                                                  session_numbers, cell_registered_struct);
+
+    %% SECTION 4: METADATA
+    fprintf('    - Adding metadata\n');
+    CellReg_Results.metadata = struct();
+    CellReg_Results.metadata.subject_id = subject_id;
+    CellReg_Results.metadata.session_numbers = session_numbers;
+    CellReg_Results.metadata.n_sessions = n_sessions;
+    CellReg_Results.metadata.roi_mappings = roi_mappings;
+    CellReg_Results.metadata.timestamp = datestr(now, 'yyyy-mm-dd HH:MM:SS');
+    CellReg_Results.metadata.pipeline_version = 'integrated_cell_tracking_pipeline_v2';
+
+    %% SECTION 5: SUMMARY STATISTICS
+    fprintf('    - Computing summary statistics\n');
+    CellReg_Results.summary = compute_summary_statistics(optimal_cell_to_index_map, roi_mappings, ...
+                                                         session_numbers);
+
+    %% SECTION 6: DOCUMENTATION
+    CellReg_Results.description = struct();
+    CellReg_Results.description.main = 'Comprehensive CellReg registration results combining all data tables';
+    CellReg_Results.description.registration = 'Core CellReg output: cell_to_index_map, scores, centroids, alignments';
+    CellReg_Results.description.all_cells = 'Extended table including ALL cells (registered + filtered out)';
+    CellReg_Results.description.roi_lookup = 'Flat lookup table: [CellReg_ID | ROI_number | Session | P_same_matrix]';
+    CellReg_Results.description.metadata = 'Subject ID, sessions, ROI mappings, pipeline info';
+    CellReg_Results.description.summary = 'Summary statistics for quick overview';
+
+    fprintf('  Comprehensive structure complete!\n');
+end
+
+function expanded = build_expanded_table(optimal_cell_to_index_map, roi_mappings, session_numbers)
+% BUILD_EXPANDED_TABLE - Build extended table with ALL cells
+
+    n_sessions = length(session_numbers);
+    n_registered_cells = size(optimal_cell_to_index_map, 1);
+
+    % Create mapping
+    filtered_to_registered = cell(1, n_sessions);
+    for sess = 1:n_sessions
+        filtered_to_registered{sess} = zeros(1, roi_mappings(sess).n_kept);
+    end
+
+    for cell_id = 1:n_registered_cells
+        for sess = 1:n_sessions
+            filtered_idx = optimal_cell_to_index_map(cell_id, sess);
+            if filtered_idx > 0
+                filtered_to_registered{sess}(filtered_idx) = cell_id;
+            end
+        end
+    end
+
+    expanded_table = optimal_cell_to_index_map;
+
+    % Add filtered-out cells
+    for sess = 1:n_sessions
+        filtered_indices = roi_mappings(sess).filtered_indices;
+        filtered_out_mask = (filtered_indices == 0);
+        filtered_out_original_rois = roi_mappings(sess).original_roi_numbers(filtered_out_mask);
+
+        for i = 1:length(filtered_out_original_rois)
+            new_row = zeros(1, n_sessions);
+            new_row(sess) = -filtered_out_original_rois(i);
+            expanded_table = [expanded_table; new_row];
+        end
+    end
+
+    % Map to original ROI numbers
+    expanded_table_original_rois = zeros(size(expanded_table));
+    for cell_id = 1:size(expanded_table, 1)
+        for sess = 1:n_sessions
+            idx = expanded_table(cell_id, sess);
+            if idx > 0
+                original_roi_num = find(roi_mappings(sess).filtered_indices == idx, 1);
+                if ~isempty(original_roi_num)
+                    expanded_table_original_rois(cell_id, sess) = roi_mappings(sess).original_roi_numbers(original_roi_num);
+                end
+            elseif idx < 0
+                expanded_table_original_rois(cell_id, sess) = -idx;
+            end
+        end
+    end
+
+    expanded = struct();
+    expanded.cell_to_index_map_filtered = expanded_table;
+    expanded.cell_to_index_map_original_rois = expanded_table_original_rois;
+    expanded.session_numbers = session_numbers;
+    expanded.n_registered = n_registered_cells;
+    expanded.n_total_including_filtered = size(expanded_table, 1);
+    expanded.description = 'Extended table including ALL cells. 0=not present, >0=ROI number, <0=filtered out';
+end
+
+function roi_lookup = build_roi_lookup(optimal_cell_to_index_map, roi_mappings, session_numbers, cell_registered_struct)
+% BUILD_ROI_LOOKUP - Build flat ROI lookup table
+
+    n_sessions = length(session_numbers);
+
+    % Get p_same data
+    has_p_same = false;
+    p_same_registered_pairs = [];
+    if isfield(cell_registered_struct, 'p_same_registered_pairs')
+        p_same_registered_pairs = cell_registered_struct.p_same_registered_pairs;
+        if ~isempty(p_same_registered_pairs) && ~all(all(isnan(p_same_registered_pairs)))
+            has_p_same = true;
+        end
+    end
+
+    % Calculate total ROIs
+    total_rois = 0;
+    for sess_idx = 1:n_sessions
+        total_rois = total_rois + roi_mappings(sess_idx).n_total;
+    end
+
+    % Initialize arrays
+    CellReg_ID_array = zeros(total_rois, 1);
+    ROI_number_array = zeros(total_rois, 1);
+    Session_array = zeros(total_rois, 1);
+    P_same_matrix_cell = cell(total_rois, 1);
+
+    % Fill lookup table
+    current_row = 1;
+    for sess_idx = 1:n_sessions
+        sess_num = session_numbers(sess_idx);
+        original_roi_numbers = roi_mappings(sess_idx).original_roi_numbers;
+        filtered_indices = roi_mappings(sess_idx).filtered_indices;
+        n_rois_this_session = roi_mappings(sess_idx).n_total;
+
+        for roi_idx = 1:n_rois_this_session
+            ROI_number_array(current_row) = original_roi_numbers(roi_idx);
+            Session_array(current_row) = sess_num;
+            filtered_idx = filtered_indices(roi_idx);
+
+            if filtered_idx > 0
+                cellreg_id = find(optimal_cell_to_index_map(:, sess_idx) == filtered_idx, 1);
+                if ~isempty(cellreg_id)
+                    CellReg_ID_array(current_row) = cellreg_id;
+                    if has_p_same && cellreg_id <= size(p_same_registered_pairs, 1)
+                        P_same_matrix_cell{current_row} = extract_p_same_matrix_from_pairs(...
+                            cellreg_id, p_same_registered_pairs, n_sessions);
+                    end
+                end
+            end
+            current_row = current_row + 1;
+        end
+    end
+
+    roi_lookup = struct();
+    roi_lookup.CellReg_ID = CellReg_ID_array;
+    roi_lookup.ROI_number = ROI_number_array;
+    roi_lookup.Session = Session_array;
+    roi_lookup.P_same_matrix = P_same_matrix_cell;
+    roi_lookup.total_rois = total_rois;
+    roi_lookup.n_registered = sum(CellReg_ID_array > 0);
+    roi_lookup.n_filtered = sum(CellReg_ID_array == 0);
+    roi_lookup.description = '[CellReg_ID | ROI_number | Session | P_same_matrix]. CellReg_ID=0 = filtered out';
+end
+
+function summary = compute_summary_statistics(optimal_cell_to_index_map, roi_mappings, session_numbers)
+% COMPUTE_SUMMARY_STATISTICS - Compute summary statistics
+
+    n_sessions = length(session_numbers);
+    summary = struct();
+    summary.n_sessions = n_sessions;
+    summary.session_numbers = session_numbers;
+    summary.n_registered_cells = size(optimal_cell_to_index_map, 1);
+
+    % Per-session statistics
+    summary.per_session = struct();
+    for sess_idx = 1:n_sessions
+        sess_num = session_numbers(sess_idx);
+        field_name = sprintf('session_%d', sess_num);
+        summary.per_session.(field_name).total_rois = roi_mappings(sess_idx).n_total;
+        summary.per_session.(field_name).kept_rois = roi_mappings(sess_idx).n_kept;
+        summary.per_session.(field_name).filtered_rois = roi_mappings(sess_idx).n_total - roi_mappings(sess_idx).n_kept;
+        summary.per_session.(field_name).registered_cells = sum(optimal_cell_to_index_map(:, sess_idx) > 0);
+    end
+
+    % Cross-session statistics
+    nonzero_counts = sum(optimal_cell_to_index_map ~= 0, 2);
+    summary.cells_in_all_sessions = sum(nonzero_counts == n_sessions);
+    summary.cells_in_n_sessions = struct();
+    for n = 1:n_sessions
+        field_name = sprintf('n_%d', n);
+        summary.cells_in_n_sessions.(field_name) = sum(nonzero_counts == n);
+    end
+    summary.description = 'Summary statistics for quick overview of registration results';
+end
+
+%% EXPANDED REGISTRATION TABLE CREATION - OLD FUNCTIONS (DEPRECATED)
 %% ========================================================================
 
 function create_expanded_registration_table(optimal_cell_to_index_map, roi_mappings, results_directory, session_numbers)
@@ -2272,21 +2486,23 @@ function run_cellreg_pipeline(file_names, params)
         fprintf('  Warning: Failed to create session overlap visualization: %s\n', ME.message);
     end
     
-%% MODIFIED: Create expanded registration table including filtered cells
+%% MODIFIED: Create unified comprehensive results structure
 if isfield(params, 'roi_mappings') && ~isempty(params.roi_mappings)
-    create_expanded_registration_table(optimal_cell_to_index_map, ...
-                                      params.roi_mappings, ...
-                                      results_directory, ...
-                                      params.session_numbers);
-    
-    % Create ROI-to-CellReg lookup table (loads p_same from cellRegistered file)
-    create_roi_to_cellreg_lookup_tables(optimal_cell_to_index_map, ...
-                                       params.roi_mappings, ...
-                                       results_directory, ...
-                                       params.session_numbers, ...
-                                       params.subject_id);
+    fprintf('\n--- Creating Comprehensive Results Structure ---\n');
+    CellReg_Results = create_unified_results_structure(cell_registered_struct, ...
+                                                       optimal_cell_to_index_map, ...
+                                                       params.roi_mappings, ...
+                                                       params.session_numbers, ...
+                                                       params.subject_id, ...
+                                                       results_directory);
+
+    % Save unified results
+    unified_filename = fullfile(results_directory, ['CellReg_Results_' datestr(clock, 'yyyymmdd_HHMMss') '.mat']);
+    save(unified_filename, 'CellReg_Results', '-v7.3');
+    fprintf('  Saved comprehensive results to: %s\n', ['CellReg_Results_*.mat']);
+    fprintf('  This file contains all registration data, lookup tables, and metadata\n');
 else
-    fprintf('\nWarning: ROI mappings not found in params. Skipping expanded table creation.\n');
+    fprintf('\nWarning: ROI mappings not found in params. Skipping comprehensive results creation.\n');
 end
     % Clean up
     if memory_efficient_run
