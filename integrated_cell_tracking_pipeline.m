@@ -1747,17 +1747,26 @@ function run_cellreg_pipeline(file_names, params)
 
         % DEBUG: Check p_same data right after cluster_cells returns
         fprintf('  DEBUG: p_same_registered_pairs from cluster_cells:\n');
-        fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-        fprintf('    Class: %s\n', class(p_same_registered_pairs));
-        if ~isempty(p_same_registered_pairs)
-            fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
-                    p_same_registered_pairs(1, min(1, end)), ...
-                    p_same_registered_pairs(1, min(2, end)), ...
-                    p_same_registered_pairs(1, min(3, end)));
-            fprintf('    Contains NaN: %s\n', mat2str(any(any(isnan(p_same_registered_pairs)))));
-            fprintf('    Min/Max values: [%.4f, %.4f]\n', min(p_same_registered_pairs(:)), max(p_same_registered_pairs(:)));
+        if iscell(p_same_registered_pairs)
+            fprintf('    Type: CELL ARRAY (unexpected!)\n');
+            fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+            if ~isempty(p_same_registered_pairs)
+                fprintf('    First element class: %s\n', class(p_same_registered_pairs{1}));
+                fprintf('    First element size: [%d x %d]\n', size(p_same_registered_pairs{1}, 1), size(p_same_registered_pairs{1}, 2));
+            end
         else
-            fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
+            fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+            fprintf('    Class: %s\n', class(p_same_registered_pairs));
+            if ~isempty(p_same_registered_pairs)
+                fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
+                        p_same_registered_pairs(1, min(1, end)), ...
+                        p_same_registered_pairs(1, min(2, end)), ...
+                        p_same_registered_pairs(1, min(3, end)));
+                fprintf('    Contains NaN: %s\n', mat2str(any(any(isnan(p_same_registered_pairs)))));
+                fprintf('    Min/Max values: [%.4f, %.4f]\n', min(p_same_registered_pairs(:)), max(p_same_registered_pairs(:)));
+            else
+                fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
+            end
         end
 
         plot_cell_scores(cell_scores_positive, cell_scores_negative, cell_scores_exclusive, ...
@@ -1876,12 +1885,17 @@ function run_cellreg_pipeline(file_names, params)
         cell_registered_struct.true_negative_scores = cell_scores_negative';
         cell_registered_struct.exclusivity_scores = cell_scores_exclusive';
 
-        % DEBUG: Check p_same before and after transpose
+        % DEBUG: Check p_same before saving to struct
         fprintf('  DEBUG: Before saving to struct:\n');
-        fprintf('    p_same_registered_pairs size before transpose: [%d x %d]\n', ...
-                size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-        fprintf('    p_same_registered_pairs size after transpose: [%d x %d]\n', ...
-                size(p_same_registered_pairs', 1), size(p_same_registered_pairs', 2));
+        if iscell(p_same_registered_pairs)
+            fprintf('    WARNING: p_same_registered_pairs is a CELL ARRAY!\n');
+            fprintf('    This is unexpected - cluster_cells should return a numeric array\n');
+            fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        else
+            fprintf('    p_same_registered_pairs size: [%d x %d]\n', ...
+                    size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+            fprintf('    Class: %s\n', class(p_same_registered_pairs));
+        end
 
         % CRITICAL: DO NOT TRANSPOSE - cluster_cells already returns [n_cells x n_pairs]
         % The extract_p_same_matrix_from_pairs function expects [n_cells x n_pairs]
