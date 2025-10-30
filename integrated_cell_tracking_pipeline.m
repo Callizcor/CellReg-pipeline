@@ -20,8 +20,54 @@ function integrated_cell_tracking_pipeline()
     diary_file = fullfile(params.results_directory, sprintf('pipeline_log_%s.txt', datestr(now, 'yyyymmdd_HHMMSS')));
     diary(diary_file);
     diary on;
-    
-    fprintf('Log file created: %s\n\n', diary_file);
+
+    % Log header with version info
+    fprintf('=================================================================\n');
+    fprintf('INTEGRATED CELL TRACKING PIPELINE - SESSION LOG\n');
+    fprintf('=================================================================\n');
+    fprintf('Timestamp: %s\n', datestr(now, 'yyyy-mm-dd HH:MM:SS'));
+    fprintf('Log file: %s\n', diary_file);
+
+    % Get calling script name
+    stack = dbstack('-completenames');
+    if length(stack) > 1
+        [~, caller_name, caller_ext] = fileparts(stack(end).file);
+        fprintf('Called from: %s%s\n', caller_name, caller_ext);
+    else
+        fprintf('Called from: Command line\n');
+    end
+
+    % Get git commit info
+    try
+        [status, commit_hash] = system('git rev-parse HEAD');
+        if status == 0
+            commit_hash = strtrim(commit_hash);
+            fprintf('Git commit: %s\n', commit_hash(1:min(8, length(commit_hash))));
+
+            [status, commit_msg] = system('git log -1 --pretty=%B');
+            if status == 0
+                commit_msg = strtrim(commit_msg);
+                % Only show first line of commit message
+                newline_idx = find(commit_msg == sprintf('\n'), 1);
+                if ~isempty(newline_idx)
+                    commit_msg = commit_msg(1:newline_idx-1);
+                end
+                fprintf('Commit message: %s\n', commit_msg);
+            end
+
+            [status, branch_name] = system('git rev-parse --abbrev-ref HEAD');
+            if status == 0
+                branch_name = strtrim(branch_name);
+                fprintf('Git branch: %s\n', branch_name);
+            end
+        else
+            fprintf('Git info: Not available (not a git repository)\n');
+        end
+    catch
+        fprintf('Git info: Not available\n');
+    end
+
+    fprintf('=================================================================\n\n');
     
     %% Step 2: Fetch data and create cell tensors with visualizations
     % MODIFIED: Now also returns roi_mappings
@@ -1747,26 +1793,63 @@ function run_cellreg_pipeline(file_names, params)
 
         % DEBUG: Check p_same data right after cluster_cells returns
         fprintf('  DEBUG: p_same_registered_pairs from cluster_cells:\n');
+        fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        fprintf('    Class: %s\n', class(p_same_registered_pairs));
+
+        % FIX: Check if dimensions are swapped (should be n_cells x n_pairs, not n_pairs x n_cells)
+        n_cells = size(optimal_cell_to_index_map, 1);
+        expected_n_pairs = number_of_sessions * (number_of_sessions - 1) / 2;
+
         if iscell(p_same_registered_pairs)
-            fprintf('    Type: CELL ARRAY (unexpected!)\n');
-            fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-            if ~isempty(p_same_registered_pairs)
-                fprintf('    First element class: %s\n', class(p_same_registered_pairs{1}));
-                fprintf('    First element size: [%d x %d]\n', size(p_same_registered_pairs{1}, 1), size(p_same_registered_pairs{1}, 2));
+            fprintf('    ERROR: Type is CELL ARRAY (unexpected!)\n');
+            fprintf('    Attempting to convert cell array to numeric matrix...\n');
+
+            try
+                % Try to convert cell array to matrix
+                p_same_numeric = cell2mat(p_same_registered_pairs);
+                fprintf('    Successfully converted to numeric: [%d x %d]\n', ...
+                        size(p_same_numeric, 1), size(p_same_numeric, 2));
+                p_same_registered_pairs = p_same_numeric;
+            catch e
+                fprintf('    ERROR: Failed to convert: %s\n', e.message);
+                % Try transposing then converting
+                try
+                    p_same_numeric = cell2mat(p_same_registered_pairs');
+                    fprintf('    Successfully converted after transpose: [%d x %d]\n', ...
+                            size(p_same_numeric, 1), size(p_same_numeric, 2));
+                    p_same_registered_pairs = p_same_numeric;
+                catch e2
+                    fprintf('    ERROR: Transpose also failed: %s\n', e2.message);
+                    fprintf('    Sample of first element:\n');
+                    if ~isempty(p_same_registered_pairs)
+                        disp(p_same_registered_pairs{1});
+                    end
+                end
             end
-        else
-            fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
-            fprintf('    Class: %s\n', class(p_same_registered_pairs));
-            if ~isempty(p_same_registered_pairs)
-                fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
-                        p_same_registered_pairs(1, min(1, end)), ...
-                        p_same_registered_pairs(1, min(2, end)), ...
-                        p_same_registered_pairs(1, min(3, end)));
-                fprintf('    Contains NaN: %s\n', mat2str(any(any(isnan(p_same_registered_pairs)))));
-                fprintf('    Min/Max values: [%.4f, %.4f]\n', min(p_same_registered_pairs(:)), max(p_same_registered_pairs(:)));
-            else
-                fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
+        end
+
+        % Check if dimensions match expected
+        fprintf('    Expected dimensions: [%d cells x %d pairs]\n', n_cells, expected_n_pairs);
+        if size(p_same_registered_pairs, 1) ~= n_cells || size(p_same_registered_pairs, 2) ~= expected_n_pairs
+            fprintf('    WARNING: Dimensions do NOT match expected!\n');
+
+            % Check if transposed
+            if size(p_same_registered_pairs, 1) == expected_n_pairs && size(p_same_registered_pairs, 2) == n_cells
+                fprintf('    FIX: Data appears to be transposed. Transposing back...\n');
+                p_same_registered_pairs = p_same_registered_pairs';
+                fprintf('    New size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
             end
+        end
+
+        if ~isempty(p_same_registered_pairs) && isnumeric(p_same_registered_pairs)
+            fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
+                    p_same_registered_pairs(1, min(1, end)), ...
+                    p_same_registered_pairs(1, min(2, end)), ...
+                    p_same_registered_pairs(1, min(3, end)));
+            fprintf('    Contains NaN: %s\n', mat2str(any(any(isnan(p_same_registered_pairs)))));
+            fprintf('    Min/Max values: [%.4f, %.4f]\n', min(p_same_registered_pairs(:)), max(p_same_registered_pairs(:)));
+        elseif isempty(p_same_registered_pairs)
+            fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
         end
 
         plot_cell_scores(cell_scores_positive, cell_scores_negative, cell_scores_exclusive, ...
@@ -2842,6 +2925,23 @@ function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index
         p_same_matrix(i, i) = 1;
     end
 
+    % DEBUG: Check data type
+    if iscell(p_same_registered_pairs)
+        fprintf('      ERROR: p_same_registered_pairs is a CELL ARRAY! Converting to numeric...\n');
+        fprintf('      Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+
+        % Try to convert cell array to numeric matrix
+        try
+            p_same_registered_pairs = cell2mat(p_same_registered_pairs);
+            fprintf('      Successfully converted to [%d x %d] numeric matrix\n', ...
+                    size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        catch e
+            fprintf('      ERROR: Failed to convert cell array to matrix: %s\n', e.message);
+            warning('Cannot extract P_same for cell %d - data is in cell array format', cell_idx);
+            return;
+        end
+    end
+
     % Check if cell_idx is within bounds of p_same_registered_pairs
     if isempty(p_same_registered_pairs) || cell_idx > size(p_same_registered_pairs, 1)
         warning('Cell %d is out of bounds for p_same_registered_pairs (size: %d x %d)', ...
@@ -2854,9 +2954,13 @@ function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index
     % DEBUG: Show p_same values for this cell
     p_same_row = p_same_registered_pairs(cell_idx, :);
     fprintf('      Cell %d p_same row: [', cell_idx);
-    fprintf('%.3f ', p_same_row(1:min(10, length(p_same_row))));
-    if length(p_same_row) > 10
-        fprintf('... (%d more)', length(p_same_row) - 10);
+    if isnumeric(p_same_row)
+        fprintf('%.3f ', p_same_row(1:min(10, length(p_same_row))));
+        if length(p_same_row) > 10
+            fprintf('... (%d more)', length(p_same_row) - 10);
+        end
+    else
+        fprintf('ERROR: p_same_row is not numeric! Class: %s', class(p_same_row));
     end
     fprintf(']\n');
 
