@@ -1800,8 +1800,20 @@ function run_cellreg_pipeline(file_names, params)
         n_cells = size(optimal_cell_to_index_map, 1);
         expected_n_pairs = number_of_sessions * (number_of_sessions - 1) / 2;
 
+        % CRITICAL: Keep original cell array for plot_cell_scores (CellReg function expects it)
+        p_same_registered_pairs_original = p_same_registered_pairs;
+
         if iscell(p_same_registered_pairs)
             fprintf('    ERROR: Type is CELL ARRAY (unexpected!)\n');
+            fprintf('    Cell array size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+
+            % Check structure of first element
+            if ~isempty(p_same_registered_pairs)
+                fprintf('    First element size: [%d x %d], class: %s\n', ...
+                        size(p_same_registered_pairs{1}, 1), size(p_same_registered_pairs{1}, 2), ...
+                        class(p_same_registered_pairs{1}));
+            end
+
             fprintf('    Attempting to convert cell array to numeric matrix...\n');
 
             try
@@ -1809,7 +1821,23 @@ function run_cellreg_pipeline(file_names, params)
                 p_same_numeric = cell2mat(p_same_registered_pairs);
                 fprintf('    Successfully converted to numeric: [%d x %d]\n', ...
                         size(p_same_numeric, 1), size(p_same_numeric, 2));
+
+                % If we got [n_pairs x (n_cells * something)], we need to reshape
+                if size(p_same_numeric, 1) == expected_n_pairs
+                    % Data is arranged as [n_pairs x ...], need to reshape to [n_cells x n_pairs]
+                    total_elements = numel(p_same_numeric);
+                    if total_elements == n_cells * expected_n_pairs
+                        % Reshape: [n_pairs x n_cells*?] -> [n_cells x n_pairs]
+                        fprintf('    Reshaping from [%d x %d] to [%d x %d]...\n', ...
+                                size(p_same_numeric, 1), size(p_same_numeric, 2), n_cells, expected_n_pairs);
+                        p_same_numeric = reshape(p_same_numeric', n_cells, expected_n_pairs);
+                        fprintf('    Successfully reshaped to [%d x %d]\n', ...
+                                size(p_same_numeric, 1), size(p_same_numeric, 2));
+                    end
+                end
+
                 p_same_registered_pairs = p_same_numeric;
+
             catch e
                 fprintf('    ERROR: Failed to convert: %s\n', e.message);
                 % Try transposing then converting
@@ -1820,9 +1848,12 @@ function run_cellreg_pipeline(file_names, params)
                     p_same_registered_pairs = p_same_numeric;
                 catch e2
                     fprintf('    ERROR: Transpose also failed: %s\n', e2.message);
-                    fprintf('    Sample of first element:\n');
+                    fprintf('    Sample of first few elements:\n');
                     if ~isempty(p_same_registered_pairs)
-                        disp(p_same_registered_pairs{1});
+                        for i = 1:min(3, numel(p_same_registered_pairs))
+                            fprintf('      Element %d: ', i);
+                            disp(p_same_registered_pairs{i});
+                        end
                     end
                 end
             end
@@ -1830,8 +1861,10 @@ function run_cellreg_pipeline(file_names, params)
 
         % Check if dimensions match expected
         fprintf('    Expected dimensions: [%d cells x %d pairs]\n', n_cells, expected_n_pairs);
-        if size(p_same_registered_pairs, 1) ~= n_cells || size(p_same_registered_pairs, 2) ~= expected_n_pairs
+        if isnumeric(p_same_registered_pairs) && ...
+           (size(p_same_registered_pairs, 1) ~= n_cells || size(p_same_registered_pairs, 2) ~= expected_n_pairs)
             fprintf('    WARNING: Dimensions do NOT match expected!\n');
+            fprintf('    Current dimensions: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
 
             % Check if transposed
             if size(p_same_registered_pairs, 1) == expected_n_pairs && size(p_same_registered_pairs, 2) == n_cells
@@ -1852,8 +1885,9 @@ function run_cellreg_pipeline(file_names, params)
             fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
         end
 
+        % Use original cell array for plot_cell_scores (it expects that format)
         plot_cell_scores(cell_scores_positive, cell_scores_negative, cell_scores_exclusive, ...
-                        cell_scores, p_same_registered_pairs, figures_directory, figures_visibility);
+                        cell_scores, p_same_registered_pairs_original, figures_directory, figures_visibility);
     else
         if strcmp(model_type, 'Spatial correlation')
             [optimal_cell_to_index_map, registered_cells_centroids] = ...
