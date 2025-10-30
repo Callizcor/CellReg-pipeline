@@ -790,9 +790,21 @@ function create_roi_to_cellreg_lookup_tables(optimal_cell_to_index_map, roi_mapp
         if isfield(cellreg_data, 'cell_registered_struct') && ...
            isfield(cellreg_data.cell_registered_struct, 'p_same_registered_pairs')
             p_same_registered_pairs = cellreg_data.cell_registered_struct.p_same_registered_pairs;
-            has_p_same = true;
-            fprintf('    P_same data loaded successfully\n');
-            fprintf('    Size: [%d cells x %d pairs]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+
+            % Check if loaded data is not empty
+            if isempty(p_same_registered_pairs)
+                fprintf('    WARNING: p_same_registered_pairs is EMPTY in cellRegistered file\n');
+                has_p_same = false;
+            elseif all(all(isnan(p_same_registered_pairs)))
+                fprintf('    WARNING: p_same_registered_pairs contains only NaN values\n');
+                has_p_same = false;
+            else
+                has_p_same = true;
+                fprintf('    P_same data loaded successfully\n');
+                fprintf('    Size: [%d cells x %d pairs]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+                fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
+                        p_same_registered_pairs(1, 1), p_same_registered_pairs(1, min(2,end)), p_same_registered_pairs(1, min(3,end)));
+            end
         else
             fprintf('    WARNING: p_same_registered_pairs not found in cellRegistered file\n');
             has_p_same = false;
@@ -845,12 +857,18 @@ function create_roi_to_cellreg_lookup_tables(optimal_cell_to_index_map, roi_mapp
                 if ~isempty(cellreg_id)
                     % Column 1: CellReg ID
                     CellReg_ID_array(current_row) = cellreg_id;
-                    
+
                     % Column 4: P_same matrix for this cell
-                    if has_p_same && cellreg_id <= size(p_same_registered_pairs, 1)
-                        % Extract and reshape the P_same values into a matrix
-                        P_same_matrix_cell{current_row} = extract_p_same_matrix_from_pairs(...
-                            cellreg_id, p_same_registered_pairs, n_sessions);
+                    if has_p_same
+                        if cellreg_id <= size(p_same_registered_pairs, 1)
+                            % Extract and reshape the P_same values into a matrix
+                            P_same_matrix_cell{current_row} = extract_p_same_matrix_from_pairs(...
+                                cellreg_id, p_same_registered_pairs, n_sessions);
+                        else
+                            fprintf('    WARNING: CellReg ID %d exceeds p_same_registered_pairs size (%d)\n', ...
+                                    cellreg_id, size(p_same_registered_pairs, 1));
+                            P_same_matrix_cell{current_row} = [];
+                        end
                     else
                         P_same_matrix_cell{current_row} = [];
                     end
@@ -2788,7 +2806,17 @@ function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index
 
     num_sessions_total = size(optimal_cell_to_index_map, 2);
 
+    % DEBUG: Show p_same values for this cell
+    p_same_row = p_same_registered_pairs(cell_idx, :);
+    fprintf('      Cell %d p_same row: [', cell_idx);
+    fprintf('%.3f ', p_same_row(1:min(10, length(p_same_row))));
+    if length(p_same_row) > 10
+        fprintf('... (%d more)', length(p_same_row) - 10);
+    end
+    fprintf(']\n');
+
     pair_idx = 0;
+    n_valid_pairs = 0;
     for sess_i = 1:num_sessions_total-1
         for sess_j = sess_i+1:num_sessions_total
             pair_idx = pair_idx + 1;
@@ -2803,11 +2831,14 @@ function p_same_matrix = extract_p_same_for_cell(cell_idx, optimal_cell_to_index
                     if ~isnan(p_val) && p_val >= 0
                         p_same_matrix(idx_i, idx_j) = p_val;
                         p_same_matrix(idx_j, idx_i) = p_val;
+                        n_valid_pairs = n_valid_pairs + 1;
                     end
                 end
             end
         end
     end
+
+    fprintf('      Cell %d: Filled %d valid P_same pairs\n', cell_idx, n_valid_pairs);
 end
 
 function plot_session_venn_diagram(optimal_cell_to_index_map, figures_directory, ...
