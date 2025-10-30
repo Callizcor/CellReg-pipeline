@@ -711,6 +711,10 @@ function CellReg_Results = create_unified_results_structure(cell_registered_stru
     fprintf('    - Adding ROI lookup table\n');
     CellReg_Results.roi_lookup = build_roi_lookup(optimal_cell_to_index_map, roi_mappings, ...
                                                   session_numbers, cell_registered_struct);
+    fprintf('      ROI lookup: %d total ROIs, %d registered, %d filtered\n', ...
+            CellReg_Results.roi_lookup.total_rois, ...
+            CellReg_Results.roi_lookup.n_registered, ...
+            CellReg_Results.roi_lookup.n_filtered);
 
     %% SECTION 4: METADATA
     fprintf('    - Adding metadata\n');
@@ -810,7 +814,10 @@ function roi_lookup = build_roi_lookup(optimal_cell_to_index_map, roi_mappings, 
     p_same_registered_pairs = [];
     if isfield(cell_registered_struct, 'p_same_registered_pairs')
         p_same_registered_pairs = cell_registered_struct.p_same_registered_pairs;
-        if ~isempty(p_same_registered_pairs) && ~all(all(isnan(p_same_registered_pairs)))
+        % Check if p_same data is available (should be cell array with matrices)
+        if iscell(p_same_registered_pairs) && ~isempty(p_same_registered_pairs)
+            has_p_same = true;
+        elseif isnumeric(p_same_registered_pairs) && ~isempty(p_same_registered_pairs) && ~all(all(isnan(p_same_registered_pairs)))
             has_p_same = true;
         end
     end
@@ -2129,9 +2136,16 @@ function run_cellreg_pipeline(file_names, params)
 
         % Save p_same as cell array with full [n_sessions x n_sessions] matrices
         cell_registered_struct.p_same_registered_pairs = p_same_registered_pairs;
-        fprintf('  Saved p_same_registered_pairs: Cell array [%d x %d] with [%d x %d] matrices\n', ...
-                size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2), ...
-                number_of_sessions, number_of_sessions);
+        if iscell(p_same_registered_pairs) && ~isempty(p_same_registered_pairs)
+            first_matrix = p_same_registered_pairs{1};
+            fprintf('  Saved p_same_registered_pairs: Cell array [%d x %d], each matrix [%d x %d]\n', ...
+                    size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2), ...
+                    size(first_matrix, 1), size(first_matrix, 2));
+        else
+            fprintf('  Saved p_same_registered_pairs: %s [%d x %d]\n', ...
+                    class(p_same_registered_pairs), ...
+                    size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        end
     end
     cell_registered_struct.is_cell_in_overlapping_FOV = is_in_overlapping_FOV';
     cell_registered_struct.registered_cells_centroids = registered_cells_centroids';
@@ -2291,8 +2305,13 @@ if isfield(params, 'roi_mappings') && ~isempty(params.roi_mappings)
     % Save unified results
     unified_filename = fullfile(results_directory, ['CellReg_Results_' datestr(clock, 'yyyymmdd_HHMMss') '.mat']);
     save(unified_filename, 'CellReg_Results', '-v7.3');
-    fprintf('  Saved comprehensive results to: %s\n', ['CellReg_Results_*.mat']);
-    fprintf('  This file contains all registration data, lookup tables, and metadata\n');
+    fprintf('  Saved comprehensive results to: %s\n', unified_filename);
+    fprintf('  This file contains:\n');
+    fprintf('    - registration: Core CellReg data\n');
+    fprintf('    - all_cells: Extended table with all cells\n');
+    fprintf('    - roi_lookup: ROI-to-CellReg lookup (CellReg_ID, ROI_number, Session, P_same_matrix)\n');
+    fprintf('    - metadata: Subject ID, sessions, ROI mappings\n');
+    fprintf('    - summary: Summary statistics\n');
 else
     fprintf('\nWarning: ROI mappings not found in params. Skipping comprehensive results creation.\n');
 end
