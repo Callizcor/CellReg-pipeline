@@ -1357,11 +1357,13 @@ function run_cellreg_pipeline(file_names, params)
         [spatial_footprints, ~] = load_multiple_sessions(file_names);
     end
 
-    % Suppress diary during projection calculations to avoid session-by-session logging
+    % Suppress diary during projection calculations
+    % This prevents "Calculating projections for session #N" messages from being logged
     diary off;
     [footprints_projections] = compute_footprints_projections(spatial_footprints);
     plot_all_sessions_projections(footprints_projections, figures_directory, figures_visibility);
     diary on;
+
     fprintf('Done\n');
     clear footprints_projections
     
@@ -1379,12 +1381,14 @@ function run_cellreg_pipeline(file_names, params)
         adjust_FOV_size(normalized_spatial_footprints);
     clear normalized_spatial_footprints
 
-    % Suppress diary during centroid calculations to avoid progress bar clutter
+    % Suppress diary during centroid and projection calculations
+    % This prevents "Calculating projections for session #N" messages from being logged
     diary off;
     [adjusted_footprints_projections] = compute_footprints_projections(adjusted_spatial_footprints);
     [centroid_locations] = compute_centroid_locations(adjusted_spatial_footprints, microns_per_pixel);
     [centroid_projections] = compute_centroids_projections(centroid_locations, adjusted_spatial_footprints);
     diary on;
+
     fprintf('  Computed centroids and projections\n');
 
     % Alignment
@@ -1562,7 +1566,8 @@ function run_cellreg_pipeline(file_names, params)
     
     [number_of_bins, centers_of_bins] = estimate_number_of_bins(adjusted_spatial_footprints, normalized_maximal_distance);
 
-    % Suppress diary during compute_data_distribution to avoid session-by-session logging clutter
+    % Suppress diary during compute_data_distribution and model computation
+    % This prevents verbose session-by-session logging and progress messages
     diary off;
     [all_to_all_indexes, all_to_all_spatial_correlations, all_to_all_centroid_distances, ...
      neighbors_spatial_correlations, neighbors_centroid_distances, neighbors_x_displacements, ...
@@ -1739,6 +1744,22 @@ function run_cellreg_pipeline(file_names, params)
                              all_to_all_indexes, normalized_maximal_distance, p_same_threshold, ...
                              centroid_locations_corrected, registration_approach, transform_data);
         end
+
+        % DEBUG: Check p_same data right after cluster_cells returns
+        fprintf('  DEBUG: p_same_registered_pairs from cluster_cells:\n');
+        fprintf('    Size: [%d x %d]\n', size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        fprintf('    Class: %s\n', class(p_same_registered_pairs));
+        if ~isempty(p_same_registered_pairs)
+            fprintf('    Sample values (first cell, first 3 pairs): [%.4f, %.4f, %.4f]\n', ...
+                    p_same_registered_pairs(1, min(1, end)), ...
+                    p_same_registered_pairs(1, min(2, end)), ...
+                    p_same_registered_pairs(1, min(3, end)));
+            fprintf('    Contains NaN: %s\n', mat2str(any(any(isnan(p_same_registered_pairs)))));
+            fprintf('    Min/Max values: [%.4f, %.4f]\n', min(p_same_registered_pairs(:)), max(p_same_registered_pairs(:)));
+        else
+            fprintf('    WARNING: p_same_registered_pairs is EMPTY from cluster_cells!\n');
+        end
+
         plot_cell_scores(cell_scores_positive, cell_scores_negative, cell_scores_exclusive, ...
                         cell_scores, p_same_registered_pairs, figures_directory, figures_visibility);
     else
@@ -1854,7 +1875,17 @@ function run_cellreg_pipeline(file_names, params)
         cell_registered_struct.true_positive_scores = cell_scores_positive';
         cell_registered_struct.true_negative_scores = cell_scores_negative';
         cell_registered_struct.exclusivity_scores = cell_scores_exclusive';
-        cell_registered_struct.p_same_registered_pairs = p_same_registered_pairs';
+
+        % DEBUG: Check p_same before and after transpose
+        fprintf('  DEBUG: Before saving to struct:\n');
+        fprintf('    p_same_registered_pairs size before transpose: [%d x %d]\n', ...
+                size(p_same_registered_pairs, 1), size(p_same_registered_pairs, 2));
+        fprintf('    p_same_registered_pairs size after transpose: [%d x %d]\n', ...
+                size(p_same_registered_pairs', 1), size(p_same_registered_pairs', 2));
+
+        % CRITICAL: DO NOT TRANSPOSE - cluster_cells already returns [n_cells x n_pairs]
+        % The extract_p_same_matrix_from_pairs function expects [n_cells x n_pairs]
+        cell_registered_struct.p_same_registered_pairs = p_same_registered_pairs;
     end
     cell_registered_struct.is_cell_in_overlapping_FOV = is_in_overlapping_FOV';
     cell_registered_struct.registered_cells_centroids = registered_cells_centroids';
